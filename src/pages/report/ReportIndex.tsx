@@ -89,6 +89,9 @@ const ReportIndex = () => {
   const [exporting, setExporting]   = useState(false);
   const [exportStep, setExportStep] = useState(0);
   const [exportCount, setExportCount] = useState(0);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [perPage] = useState(15);
 
   const progressMap = [10, 35, 65, 85, 100];
 
@@ -96,27 +99,37 @@ const ReportIndex = () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (search) params.append('search', search);
+      if (search)    params.append('search',     search);
       if (startDate) params.append('start_date', startDate);
-      if (endDate) params.append('end_date', endDate);
+      if (endDate)   params.append('end_date',   endDate);
+      params.append('page',     String(page));
+      params.append('per_page', String(perPage));
       const res = await api.get(`/reports?${params.toString()}`);
       const payload = res.data?.data ?? res.data;
       setReports(Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : []);
+      setTotal(res.data?.data?.total ?? res.data?.total ?? 0);
     } catch {
       setReports([]);
+      setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [search, startDate, endDate]);
+  }, [search, startDate, endDate, page, perPage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search, startDate, endDate, selectedType, selectedStatus, assigneeSearch]);
 
   useEffect(() => { fetchReports(); }, [fetchReports]);
 
   const filtered = reports.filter(r => {
-    const typeOk = selectedType.length === 0 || selectedType.includes(r.type);
-    const statusOk = selectedStatus.length === 0 || selectedStatus.includes(r.status);
+    const typeOk     = selectedType.length === 0 || selectedType.includes(r.type);
+    const statusOk   = selectedStatus.length === 0 || selectedStatus.includes(r.status);
     const assigneeOk = !assigneeSearch || r.assigned_to?.toLowerCase().includes(assigneeSearch.toLowerCase());
     return typeOk && statusOk && assigneeOk;
   });
+
+  const totalPages = Math.ceil(total / perPage);
 
   const toggle = <T,>(arr: T[], val: T, setter: (v: T[]) => void) => {
     setter(arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val]);
@@ -289,7 +302,7 @@ const ReportIndex = () => {
               Incident Management
             </h4>
             <span style={{ fontSize: 13, color: '#94a3b8' }}>
-              {filtered.length} dari {reports.length} incidents
+              {total > 0 ? `${((page - 1) * perPage) + 1}–${Math.min(page * perPage, total)} dari ${total} incidents` : `${filtered.length} incidents`}
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -505,6 +518,79 @@ const ReportIndex = () => {
                   })}
                 </tbody>
               </table>
+              {/* Pagination */}
+                {totalPages > 1 && (
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '14px 16px', borderTop: '1px solid #f1f5f9',
+                  }}>
+                    <span style={{ fontSize: 13, color: '#94a3b8' }}>
+                      Menampilkan {((page - 1) * perPage) + 1}–{Math.min(page * perPage, total)} dari {total} data
+                    </span>
+
+                    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                      {/* Prev */}
+                      <button
+                        onClick={() => setPage(p => Math.max(1, p - 1))}
+                        disabled={page === 1}
+                        style={{
+                          padding: '6px 12px', borderRadius: 7, border: '1px solid #e2e8f0',
+                          background: page === 1 ? '#f8fafc' : '#fff',
+                          color: page === 1 ? '#d1d5db' : '#374151',
+                          cursor: page === 1 ? 'not-allowed' : 'pointer',
+                          fontSize: 13, fontWeight: 500,
+                        }}
+                      >
+                        ← Prev
+                      </button>
+
+                      {/* Page numbers */}
+                      {Array.from({ length: totalPages }, (_, i) => i + 1)
+                        .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
+                        .reduce<(number | string)[]>((acc, p, idx, arr) => {
+                          if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push('...');
+                          acc.push(p);
+                          return acc;
+                        }, [])
+                        .map((p, idx) =>
+                          p === '...' ? (
+                            <span key={`dot-${idx}`} style={{ padding: '6px 4px', color: '#94a3b8', fontSize: 13 }}>···</span>
+                          ) : (
+                            <button
+                              key={p}
+                              onClick={() => setPage(p as number)}
+                              style={{
+                                padding: '6px 11px', borderRadius: 7,
+                                border: `1px solid ${page === p ? '#6366f1' : '#e2e8f0'}`,
+                                background: page === p ? '#6366f1' : '#fff',
+                                color: page === p ? '#fff' : '#374151',
+                                cursor: 'pointer', fontSize: 13, fontWeight: page === p ? 700 : 400,
+                                minWidth: 34, textAlign: 'center',
+                              }}
+                            >
+                              {p}
+                            </button>
+                          )
+                        )
+                      }
+
+                      {/* Next */}
+                      <button
+                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                        disabled={page === totalPages}
+                        style={{
+                          padding: '6px 12px', borderRadius: 7, border: '1px solid #e2e8f0',
+                          background: page === totalPages ? '#f8fafc' : '#fff',
+                          color: page === totalPages ? '#d1d5db' : '#374151',
+                          cursor: page === totalPages ? 'not-allowed' : 'pointer',
+                          fontSize: 13, fontWeight: 500,
+                        }}
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                )}
             </div>
           )}
         </div>
