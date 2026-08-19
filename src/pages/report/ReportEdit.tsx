@@ -59,6 +59,14 @@ function FieldLabel({ children, required }: { children: React.ReactNode; require
   );
 }
 
+function toDatetimeLocal(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function TextInput({
   value, onChange, placeholder, readOnly, type = 'text', required,
 }: {
@@ -325,8 +333,8 @@ const ReportEdit = () => {
           description: data.description ?? '',
           resolution: data.resolution ?? '',
           rca: data.rca ?? '',
-          servicerestored_time: data.servicerestored_time ? data.servicerestored_time.substring(0, 16) : '',
-          created_at: data.created_at ? data.created_at.substring(0, 16) : '',
+          servicerestored_time: toDatetimeLocal(data.servicerestored_time),
+          created_at: toDatetimeLocal(data.created_at),
           status: data.status ?? 1,
           incident: data.incident ?? '',
         };
@@ -519,6 +527,19 @@ const ReportEdit = () => {
     setSaving(true);
     try {
       const fd = new FormData();
+      const toIsoFromDatetimeLocal = (local: string): string => {
+      if (!local) return '';
+      const d = new Date(local);
+      if (Number.isNaN(d.getTime())) return local;
+      return d.toISOString();
+    };
+
+    if (form.created_at) {
+      fd.append('created_at', toIsoFromDatetimeLocal(form.created_at));
+    }
+    if (form.servicerestored_time) {
+      fd.append('servicerestored_time', toIsoFromDatetimeLocal(form.servicerestored_time));
+    }
       fd.append('requestor', form.requestor);
       fd.append('requestor_email', form.requestor_email);
       fd.append('request_date', form.request_date);

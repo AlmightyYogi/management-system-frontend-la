@@ -116,7 +116,7 @@ const Sidebar = () => {
           style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
         >
           <i className="bi bi-list-task fs-5"></i>
-          {!isCollapsed && <span className="fw-medium ms-3">Incidents</span>}
+          {!isCollapsed && <span className="fw-medium ms-3">Tickets</span>}
         </NavLink>
 
         <NavLink

@@ -319,11 +319,7 @@ const ReportCreate = () => {
                                     : isMed       ? '#ca8a04'
                                     :               '#16a34a';
 
-                      const label = isNoImpact  ? 'No Impact'
-                                  : isEmergency ? 'Critical'
-                                  : isHigh      ? 'High'
-                                  : isMed       ? 'Medium'
-                                  :               'Low';
+                      const label = opt;
 
                       const desc = isNoImpact  ? 'Tidak ada dampak pada operasional, bisa diabaikan atau dicatat saja'
                                 : isEmergency ? 'Layanan utama tidak bisa digunakan oleh banyak user'

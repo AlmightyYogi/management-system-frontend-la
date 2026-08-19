@@ -148,7 +148,7 @@ const ReportDaily = () => {
   const [date, setDate]     = useState(todayStr());
   const [dateFrom, setDateFrom] = useState(todayStr());
   const [dateTo, setDateTo]   = useState(todayStr());
-  const [divisi, setDivisi]   = useState('Digital Application Operation');
+  const [divisi, setDivisi]   = useState('B2B Application Operation');
 
   const [kpi2, setKpi2] = useState('0');
   const [kpi3, setKpi3] = useState('0');
