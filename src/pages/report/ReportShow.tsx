@@ -381,7 +381,10 @@ function ScreenshotModal({ report, onClose }: { report: Report; onClose: () => v
     { label: 'Description', value: report.description },
     { label: 'Severity', value: report.severity ?? '—' },
     { label: 'Assigned To', value: report.assigned_to ?? '—' },
-    { label: 'Scope / Root Cause', value: report.scope ?? '—' },
+    {
+      label: report.type === 'Activity' ? 'Type Activity' : 'Scope',
+      value: report.scope ?? '—',
+    },
     {
       label: 'Restored Time',
       value: report.type === 'Incident'
@@ -782,6 +785,7 @@ const ReportShow = () => {
   const currentUserId: string | number | undefined = (authUser as any)?.uuid ?? (authUser as any)?.id;
 
   const [elapsed, setElapsed] = useState('');
+  const [displayTime, setDisplayTime] = useState('0m 0s');
 
   useEffect(() => {
   if (!report) return;
@@ -873,6 +877,44 @@ const ReportShow = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  useEffect(() => {
+    if (!report?.created_at) {
+      setDisplayTime('—');
+      return;
+    }
+
+    const start = new Date(report.created_at).getTime();
+    if (Number.isNaN(start)) {
+      setDisplayTime('—');
+      return;
+    }
+
+    const isFinished = report.status === 0 || report.status === 4;
+
+    const formatDiff = (diffMs: number) => {
+      const ms = Math.max(0, diffMs);
+      const days    = Math.floor(ms / 86400000);
+      const hours   = Math.floor((ms % 86400000) / 3600000);
+      const minutes = Math.floor((ms % 3600000) / 60000);
+      const seconds = Math.floor((ms % 60000) / 1000);
+
+      if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+      if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+      return `${minutes}m ${seconds}s`;
+    };
+
+    const tick = () => {
+      setDisplayTime(formatDiff(Date.now() - start));
+    };
+
+    tick();
+
+    if (isFinished) return;
+
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [report?.created_at, report?.status]);
+
   const [sending, setSending] = useState(false);
 
   const handleSendComment = async () => {
@@ -958,6 +1000,20 @@ const ReportShow = () => {
       Report not found
     </div>
   );
+
+  const isFinished = report.status === 0 || report.status === 4;
+
+  const formatDiff = (diffMs: number) => {
+    const ms = Math.max(0, diffMs); // anti minus
+    const days    = Math.floor(ms / 86400000);
+    const hours   = Math.floor((ms % 86400000) / 3600000);
+    const minutes = Math.floor((ms % 3600000) / 60000);
+    const seconds = Math.floor((ms % 60000) / 1000);
+
+    if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+    if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+    return `${minutes}m ${seconds}s`;
+  };
 
   return (
     <div style={{ background: '#f9fafb', minHeight: '100vh', fontFamily: "'Inter', -apple-system, sans-serif" }}>
@@ -1059,10 +1115,20 @@ const ReportShow = () => {
               const color  = isEmergency ? '#dc2626' : isCritical ? '#d97706' : isMajor ? '#ca8a04' : '#16a34a';
               const bg     = isEmergency ? '#fef2f2' : isCritical ? '#fffbeb' : isMajor ? '#fefce8' : '#f0fdf4';
               const border = isEmergency ? '#fecaca' : isCritical ? '#fde68a' : isMajor ? '#fef08a' : '#bbf7d0';
-              const label  = isEmergency ? '● Emergency' : isCritical ? '● Critical' : isMajor ? '● Major' : '● Minor';
               return (
-                <span style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 11px', borderRadius:20, fontSize:12, fontWeight:600, background:bg, color, border:`1px solid ${border}` }}>
-                  {label}
+                <span style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '4px 11px',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  background: bg,
+                  color,
+                  border: `1px solid ${border}`,
+                }}>
+                  {sev}
                 </span>
               );
             })()}
@@ -1090,45 +1156,16 @@ const ReportShow = () => {
               </span>
             )}
 
-            {(() => {
-            const isFinished = report.status === 0 || report.status === 4;
-
-            let displayTime = '';
-
-            if (isFinished) {
-              const start = new Date(report.created_at).getTime();
-              const end   = report.closed_at
-                ? new Date(report.closed_at).getTime()
-                : report.updated_at
-                  ? new Date(report.updated_at).getTime()
-                  : new Date(report.created_at).getTime();
-
-              const diffMs  = Math.max(0, end - start);
-              const days    = Math.floor(diffMs / 86400000);
-              const hours   = Math.floor((diffMs % 86400000) / 3600000);
-              const minutes = Math.floor((diffMs % 3600000) / 60000);
-              const seconds = Math.floor((diffMs % 60000) / 1000);
-
-              if (days > 0)        displayTime = `${days}d ${hours}h ${minutes}m`;
-              else if (hours > 0)  displayTime = `${hours}h ${minutes}m ${seconds}s`;
-              else                 displayTime = `${minutes}m ${seconds}s`;
-            } else {
-              displayTime = elapsed;
-            }
-
-            return (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center', gap: 5,
-                padding: '4px 11px', borderRadius: 20, fontSize: 12, fontWeight: 600,
-                background: isFinished ? '#f0fdf4' : '#fff7ed',
-                color: isFinished ? '#16a34a' : '#c2410c',
-                border: `1px solid ${isFinished ? '#bbf7d0' : '#fed7aa'}`,
-                fontFamily: 'monospace',
-              }}>
-                {isFinished ? '✓' : '⏱'} {displayTime}
-              </span>
-            );
-          })()}
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 5,
+              padding: '4px 11px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+              background: isFinished ? '#f0fdf4' : '#fff7ed',
+              color: isFinished ? '#16a34a' : '#c2410c',
+              border: `1px solid ${isFinished ? '#bbf7d0' : '#fed7aa'}`,
+              fontFamily: 'monospace',
+            }}>
+              {isFinished ? '✓' : '⏱'} {displayTime}
+            </span>
 
             {report.scope && (
               <span style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 11px', borderRadius:20, fontSize:12, fontWeight:500, background:'#f0fdf4', color:'#15803d', border:'1px solid #bbf7d0' }}>
