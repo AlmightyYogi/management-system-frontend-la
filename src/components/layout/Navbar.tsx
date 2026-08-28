@@ -47,7 +47,6 @@ const Navbar = () => {
 
   const crumbs = buildCrumbs(location.pathname);
 
-  // Fetch open tickets for notification
   useEffect(() => {
     const fetchOpenTickets = async () => {
       setLoadingNotif(true);
@@ -65,7 +64,7 @@ const Navbar = () => {
 
     fetchOpenTickets();
 
-    const interval = setInterval(fetchOpenTickets, 5 * 60 * 1000); // setiap 5 menit
+    const interval = setInterval(fetchOpenTickets, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 

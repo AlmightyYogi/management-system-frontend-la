@@ -75,7 +75,7 @@ const ReportCreate = () => {
       }
 
       if (!selectedType) {
-        Swal.fire({ icon: 'warning', title: 'Pilih Type', text: 'Silakan pilih type incident terlebih dahulu.', confirmButtonColor: '#6366f1' });
+        Swal.fire({ icon: 'warning', title: 'Pilih Type', text: 'Silakan pilih type ticket terlebih dahulu.', confirmButtonColor: '#6366f1' });
         return false;
       }
     }
@@ -122,13 +122,13 @@ const ReportCreate = () => {
             <div style="width:56px;height:56px;border-radius:50%;background:#d1fae5;display:flex;align-items:center;justify-content:center;margin:0 auto 14px">
               <svg width="28" height="28" fill="none" stroke="#059669" stroke-width="2.5" viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>
             </div>
-            <h5 style="font-weight:700;color:#111827;margin-bottom:6px">Incident Berhasil Dibuat!</h5>
+            <h5 style="font-weight:700;color:#111827;margin-bottom:6px">Ticket Berhasil Dibuat!</h5>
             <p style="color:#6366f1;font-weight:600;font-size:15px;margin-bottom:4px">${incident}</p>
             <p style="color:#6b7280;font-size:13px;margin-bottom:0">${form.requestor}<br>Ditugaskan ke ${assigned} · ${form.severity || 'N/A'}</p>
           </div>
         `,
         showConfirmButton: true,
-        confirmButtonText: 'Buat Incident Baru',
+        confirmButtonText: 'Buat Ticket Baru',
         confirmButtonColor: '#6366f1',
         showCancelButton: true,
         cancelButtonText: 'Kembali ke Daftar',
@@ -168,9 +168,9 @@ const ReportCreate = () => {
               </button>
               <div>
                 <h5 style={{ fontWeight: 700, color: '#1e293b', margin: 0, fontSize: 17 }}>
-                  Buat Incident Baru
+                  Buat Ticket Baru
                 </h5>
-                <p style={{ color: '#94a3b8', fontSize: 12, margin: 0 }}>Isi informasi incident yang akan dilaporkan</p>
+                <p style={{ color: '#94a3b8', fontSize: 12, margin: 0 }}>Isi informasi ticket yang akan dilaporkan</p>
               </div>
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <button onClick={() => navigate('/reports')} style={{
@@ -230,7 +230,7 @@ const ReportCreate = () => {
                     <input className="form-control" value={form.requestor}
                       placeholder="Nama requestor / pelapor"
                       onChange={e => set('requestor', e.target.value)} />
-                    <small style={{ color: '#94a3b8', fontSize: 11 }}>Nama pelapor incident</small>
+                    <small style={{ color: '#94a3b8', fontSize: 11 }}>Nama yang mengajukan</small>
                   </div>
                   <div className="col-md-6">
                     <FieldLabel text="Email" required />
@@ -265,7 +265,7 @@ const ReportCreate = () => {
 
             {step === 2 && (
               <div>
-                <h6 style={{ fontWeight: 600, color: '#1e293b', marginBottom: 18, fontSize: 15 }}>Klasifikasi Incident</h6>
+                <h6 style={{ fontWeight: 600, color: '#1e293b', marginBottom: 18, fontSize: 15 }}>Klasifikasi Ticket</h6>
 
                 <div className="row g-3 mb-4">
                   <div className="col-md-6">
@@ -447,7 +447,7 @@ const ReportCreate = () => {
                   <i className="bi bi-info-circle" style={{ color: '#6366f1', fontSize: 17 }} />
                   <h6 style={{ fontWeight: 600, color: '#1e293b', margin: 0, fontSize: 15 }}>Konfirmasi & Review</h6>
                 </div>
-                <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 20 }}>Periksa kembali detail incident sebelum menyimpan.</p>
+                <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 20 }}>Periksa kembali detail ticket sebelum menyimpan.</p>
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: 10, overflow: 'hidden' }}>
                   {[
                     ['Requestor',     form.requestor],
@@ -502,7 +502,7 @@ const ReportCreate = () => {
                 borderRadius: 8, color: '#fff', fontSize: 13, fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer',
                 display: 'flex', alignItems: 'center', gap: 8,
               }}>
-                {saving ? <><span className="spinner-border spinner-border-sm" /> Menyimpan...</> : <><i className="bi bi-check2-circle" /> Simpan Incident</>}
+                {saving ? <><span className="spinner-border spinner-border-sm" /> Menyimpan...</> : <><i className="bi bi-check2-circle" /> Simpan Ticket</>}
               </button>
             )}
           </div>

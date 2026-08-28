@@ -4,6 +4,8 @@ import api from '../../services/api';
 import type { Report } from '../../types/report';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import { SEVERITY_COLOR, REPORT_STATUS_MAP, steps } from '../../types/report';
+import Swal from 'sweetalert2';
+import useAuthStore from '../../store/authStore';
 
 const getSeverityDisplay = (severity: string) => {
   for (const [key, val] of Object.entries(SEVERITY_COLOR)) {
@@ -115,6 +117,44 @@ const ReportIndex = () => {
       setLoading(false);
     }
   }, [search, startDate, endDate, page, perPage]);
+
+  const { user } = useAuthStore();
+    const isAdmin = user?.role_id === 1;
+
+    const handleDelete = async (e: React.MouseEvent, report: Report) => {
+      e.stopPropagation();
+
+      const result = await Swal.fire({
+        title: 'Delete ticket?',
+        html: `This <b>${report.incident}</b> ticket will deletely permanent`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#dc2626',
+        cancelButtonColor: '#6b7280',
+        confirmButtonText: 'Yes, delete',
+        cancelButtonText: 'Cancel',
+      });
+
+      if (!result.isConfirmed) return;
+
+      try {
+        await api.delete(`/reports/${report.uuid}`);
+        await Swal.fire({
+          icon: 'success',
+          title: 'Deleted',
+          text: `Ticket ${report.incident} deletely successfully`,
+          timer: 1500,
+          showConfirmButton: false,
+        });
+        fetchReports();
+      } catch (err: any) {
+        Swal.fire({
+          icon: 'error',
+          title: 'Failed',
+          text: err.response?.data?.message || 'Failed to delete ticket',
+        });
+      }
+    };
 
   useEffect(() => {
     setPage(1);
@@ -299,10 +339,10 @@ const ReportIndex = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
           <div>
             <h4 style={{ fontWeight: 700, color: '#1e293b', marginBottom: 2, fontSize: 20 }}>
-              Incident Management
+              Ticket Management
             </h4>
             <span style={{ fontSize: 13, color: '#94a3b8' }}>
-              {total > 0 ? `${((page - 1) * perPage) + 1}–${Math.min(page * perPage, total)} dari ${total} incidents` : `${filtered.length} incidents`}
+              {total > 0 ? `${((page - 1) * perPage) + 1}–${Math.min(page * perPage, total)} dari ${total} tickets` : `${filtered.length} tickets`}
             </span>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -367,7 +407,7 @@ const ReportIndex = () => {
               ...btnPrimary,
               textDecoration: 'none', display: 'inline-flex', alignItems: 'center',
             }}>
-              <i className="bi bi-plus-lg me-1" /> New Incident
+              <i className="bi bi-plus-lg me-1" /> New Ticket
             </Link>
           </div>
         </div>
@@ -378,7 +418,7 @@ const ReportIndex = () => {
               position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)',
               color: '#94a3b8', fontSize: 14,
             }} />
-            <input type="text" placeholder="Cari incidents berdasarkan nomor, judul, atau assignee..."
+            <input type="text" placeholder="Cari ticket berdasarkan nomor, judul, atau assignee..."
               value={search} onChange={e => setSearch(e.target.value)}
               style={{
                 width: '100%', padding: '9px 12px 9px 36px',
@@ -392,12 +432,12 @@ const ReportIndex = () => {
         </div>
 
         <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,.06)', overflow: 'hidden' }}>
-          {loading ? <LoadingSpinner message="Memuat data incidents..." /> : (
+          {loading ? <LoadingSpinner message="Memuat data ticket..." /> : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    {['CODE','TITLE','PRIORITY','STATUS','APP','ASSIGNEE TO','CREATED','SLA',''].map(h => (
+                    {['CODE','TITLE','PRIORITY','STATUS','APP','ASSIGNEE TO','CREATED','SLA','ACTION'].map(h => (
                       <th key={h} style={{
                         padding: '11px 14px', fontSize: 11, fontWeight: 600,
                         color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px',
@@ -423,7 +463,14 @@ const ReportIndex = () => {
                     const created = new Date(r.created_at);
                     return (
                       <tr key={r.uuid}
-                        onClick={() => navigate(`/reports/${r.uuid}`)}
+                        onClick={(e) => {
+                          const url = `/reports/${r.uuid}`;
+                          if (e.ctrlKey || e.metaKey) {
+                            window.open(url, '_blank', 'noopener,noreferrer');
+                            return;
+                          }
+                          navigate(url);
+                        }}
                         style={{
                           borderBottom: '1px solid #f1f5f9',
                           cursor: 'pointer',
@@ -434,7 +481,13 @@ const ReportIndex = () => {
                         onMouseLeave={e => (e.currentTarget.style.background = idx % 2 === 0 ? '#fff' : '#fafafa')}
                       >
                         <td style={{ padding: '13px 14px', whiteSpace: 'nowrap' }}>
-                          <span style={{ color: typeColor, fontWeight: 600, fontSize: 13 }}>{r.incident}</span>
+                          <Link
+                            to={`/reports/${r.uuid}`}
+                            onClick={e => e.stopPropagation()}
+                            style={{ color: typeColor, fontWeight: 600, fontSize: 13, textDecoration: 'none' }}
+                          >
+                            {r.incident}
+                          </Link>
                         </td>
                         <td style={{ padding: '13px 14px', maxWidth: 300 }}>
                           <div style={{ fontWeight: 500, fontSize: 13, color: '#1e293b', marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -507,11 +560,29 @@ const ReportIndex = () => {
                             );
                           })()}
                         </td>
-                        <td style={{ padding: '13px 14px' }}>
-                          <button onClick={e => { e.stopPropagation(); navigate(`/reports/${r.uuid}`); }}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: '4px 6px' }}>
-                            <i className="bi bi-three-dots-vertical" />
-                          </button>
+                        <td
+                          style={{ padding: '13px 14px', whiteSpace: 'nowrap' }}
+                          onClick={e => e.stopPropagation()}
+                        >
+                          {isAdmin && (
+                              <button
+                                type="button"
+                                title="Delete ticket"
+                                onClick={e => handleDelete(e, r)}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  cursor: 'pointer',
+                                  color: '#df1f1f',
+                                  padding: '4px 6px',
+                                  borderRadius: 6,
+                                }}
+                                onMouseEnter={e => (e.currentTarget.style.color = '#dc2626')}
+                                onMouseLeave={e => (e.currentTarget.style.color = '#94a3b8')}
+                              >
+                                <i className="bi bi-trash3" />
+                              </button>
+                            )}
                         </td>
                       </tr>
                     );
@@ -529,7 +600,6 @@ const ReportIndex = () => {
                     </span>
 
                     <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                      {/* Prev */}
                       <button
                         onClick={() => setPage(p => Math.max(1, p - 1))}
                         disabled={page === 1}
@@ -544,7 +614,6 @@ const ReportIndex = () => {
                         ← Prev
                       </button>
 
-                      {/* Page numbers */}
                       {Array.from({ length: totalPages }, (_, i) => i + 1)
                         .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 1)
                         .reduce<(number | string)[]>((acc, p, idx, arr) => {
@@ -574,7 +643,6 @@ const ReportIndex = () => {
                         )
                       }
 
-                      {/* Next */}
                       <button
                         onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                         disabled={page === totalPages}

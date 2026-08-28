@@ -1,8 +1,8 @@
 export const ROUTE_LABELS: Record<string, string> = {
   dashboard:        'Dashboard',
-  reports:          'Incidents',
-  create:           'Buat Incident',
-  edit:             'Edit Incident',
+  reports:          'Tickets',
+  create:           'Create Ticket',
+  edit:             'Edit Ticket',
   accounts:         'Accounts',
   'service-requests': 'Service Requests',
   settings:         'Settings',
