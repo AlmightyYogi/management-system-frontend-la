@@ -187,56 +187,51 @@ const ReportIndex = () => {
   };
 
   const handleExport = async () => {
-  setExporting(true);
-  setExportStep(0);
+    setExporting(true);
+    setExportStep(0);
 
-  try {
-    const params = new URLSearchParams();
-    if (search)    params.append('search',     search);
-    if (startDate) params.append('start_date', startDate);
-    if (endDate)   params.append('end_date',   endDate);
+    try {
+      const params = new URLSearchParams();
+      if (search)    params.append('search', search);
+      if (startDate) params.append('start_date', startDate);
+      if (endDate)   params.append('end_date', endDate);
 
-    const countRes = await api.get(`/reports/export-count?${params.toString()}`);
-    const count = countRes.data?.data?.count ?? 0;
-    setExportCount(count);
-    setExportStep(1);
+      const countRes = await api.get(`/reports/export-count?${params.toString()}`);
+      const count = countRes.data?.data?.count ?? 0;
+      setExportCount(count);
+      setExportStep(1);
 
-    await new Promise(r => setTimeout(r, 800));
-    setExportStep(2);
+      await new Promise(r => setTimeout(r, 800));
+      setExportStep(2);
 
-    await new Promise(r => setTimeout(r, 900));
-    setExportStep(3);
+      await new Promise(r => setTimeout(r, 900));
+      setExportStep(3);
 
-    const exportUrl = `/api/reports/export?${params.toString()}`;
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = exportUrl;
+      const response = await api.get(`/reports/export?${params.toString()}`, {
+        responseType: 'blob',
+      });
 
-    const token = localStorage.getItem('token') ?? (() => {
-      try { return JSON.parse(localStorage.getItem('auth-storage') ?? '{}')?.state?.token ?? ''; } catch { return ''; }
-    })();
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
 
-    const response = await fetch(exportUrl, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
 
-    if (!response.ok) throw new Error('Export failed');
+      const disposition =
+        (response.headers['content-disposition'] as string) ||
+        (response.headers['Content-Disposition'] as string) ||
+        '';
+      const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/i);
+      link.download = match?.[1]?.replace(/['"]/g, '') || `Reports_${Date.now()}.xlsx`;
 
-    const blob = await response.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = blobUrl;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
 
-    const disposition = response.headers.get('Content-Disposition') ?? '';
-    const match = disposition.match(/filename=([^;]+)/);
-    link.download = match?.[1] ?? `Reports_${Date.now()}.xlsx`;
-
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(blobUrl);
-
-    setExportStep(4);
+      setExportStep(4);
       await new Promise(r => setTimeout(r, 1800));
     } catch (err) {
       console.error('Export error:', err);
