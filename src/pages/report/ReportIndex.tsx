@@ -233,8 +233,14 @@ const ReportIndex = () => {
 
       setExportStep(4);
       await new Promise(r => setTimeout(r, 1800));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Export error:', err);
+      Swal.fire({
+        icon: 'error',
+        title: 'Export Gagal',
+        text: err?.response?.data?.message || err?.message || 'Terjadi kesalahan saat export.',
+        confirmButtonColor: '#6366f1',
+      });
     } finally {
       setExporting(false);
       setExportStep(0);
