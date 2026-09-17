@@ -133,6 +133,19 @@ const Sidebar = () => {
         </NavLink>
 
         <NavLink
+          to="/vss/monitor"
+          className={({ isActive }) =>
+            `d-flex align-items-center px-4 py-3 mb-1 text-decoration-none transition-all ${
+              isLinkActive('/vss/monitor') ? 'bg-primary text-white' : 'text-light hover-bg-secondary'
+            }`
+          }
+          style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
+        >
+          <i className="bi bi-display fs-5"></i>
+          {!isCollapsed && <span className="fw-medium ms-3">VSS Monitoring</span>}
+        </NavLink>
+
+        <NavLink
           to="/accounts"
           className={({ isActive }) =>
             `d-flex align-items-center px-4 py-3 mb-1 text-decoration-none transition-all ${

@@ -16,6 +16,8 @@ import AccountIndex from './pages/account/AccountIndex';
 import AccountCreate from './pages/account/AccountCreate';
 import AccountEdit from './pages/account/AccountEdit';
 
+import VSSMonitor from './pages/vss/VSSMonitor';
+
 function App() {
   return (
     <Router>
@@ -41,6 +43,9 @@ function App() {
 
               {/* Daily Report */}
               <Route path="/daily" element={<ReportDaily />} />
+
+              {/* VSS Monitoring */}
+              <Route path="/vss/monitor" element={<VSSMonitor />} />
             </Route>
           </Route>
 
