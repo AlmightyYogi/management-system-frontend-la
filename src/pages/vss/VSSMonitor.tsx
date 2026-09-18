@@ -458,7 +458,7 @@ const VSSMonitor = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['WAKTU', 'DEVICE ID', 'NAME', 'REASON', 'ACTION', 'ALARM ID', 'DETAIL', 'DELAY', 'DTU', 'IS LATER'].map(
+                        {['WAKTU', 'DEVICE ID', 'NAME', 'ACTION', 'ALARM ID', 'DETAIL', 'DELAY', 'DTU', 'IS LATER'].map(
                           (h) => (
                             <th key={h} style={thStyle}>
                               {h}
@@ -491,9 +491,9 @@ const VSSMonitor = () => {
                             <td style={{ ...tdStyle, fontWeight: 500, color: '#1e293b' }}>
                               {r.device_name || '—'}
                             </td>
-                            <td style={tdStyle}>
+                            {/* <td style={tdStyle}>
                               <ReasonBadge reason={r.reason} />
-                            </td>
+                            </td> */}
                             <td style={tdStyle}>{r.action || '—'}</td>
                             <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>
                             {r.alarm_id || '—'}
@@ -537,7 +537,7 @@ const VSSMonitor = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['WAKTU', 'DEVICE ID', 'NAME', 'REASON', 'ACTION', 'ALARM ID', 'DETAIL', 'DELAY', 'EMAIL', 'BULAN'].map(
+                        {['WAKTU', 'DEVICE ID', 'NAME', 'ACTION', 'ALARM ID', 'DELAY', 'IS EMAIL SENT', 'EMAIL', 'BULAN'].map(
                           (h) => (
                             <th key={h} style={thStyle}>
                               {h}
@@ -570,9 +570,15 @@ const VSSMonitor = () => {
                             <td style={{ ...tdStyle, fontWeight: 500, color: '#1e293b' }}>
                               {r.device_name || '—'}
                             </td>
-                            <td style={tdStyle}>
-                              <ReasonBadge reason={r.reason} />
+                            <td style={{ ...tdStyle, fontWeight: 500, color: '#1e293b' }}>
+                              {r.action || '—'}
                             </td>
+                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>
+                            {r.alarm_id || '—'}
+                            </td>
+                            {/* <td style={tdStyle}>
+                              <ReasonBadge reason={r.reason} />
+                            </td> */}
                             <td style={{ ...tdStyle, fontWeight: 600 }}>{r.delay_sec}s</td>
                             <td style={tdStyle}>
                               {r.email_sent ? (
