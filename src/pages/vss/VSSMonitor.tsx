@@ -7,6 +7,7 @@ import { REASON_OPTIONS, REASON_STYLE, inputStyle, clearBtnStyle, btnOutline, bt
 const SIDEBAR_W = 240;
 
 type Tab = 'live' | 'history' | 'stats';
+type StatsView = 'summary' | 'percent' | 'devices';
 
 function todayStr() {
   const d = new Date();
@@ -37,6 +38,31 @@ function formatDateTime(value?: string) {
       second: '2-digit',
     })
   );
+}
+
+function formatReportTime(ms?: number) {
+    if (ms == null || ms <= 0) return '-';
+    const d = new Date(ms);
+    if (Number.isNaN(d.getTime())) return '-';
+    return formatDateTime(d.toISOString());
+}
+
+function formatDelaySec(sec?: number) {
+    if (sec == null || sec < 0 || Number.isNaN(sec)) return '-';
+    const s = Math.floor(sec);
+    if (s < 60) return `${s}s`;
+
+    const days = Math.floor(s / 86400);
+    const hours = Math.floor((s % 86400) / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    const secs = s % 60;
+
+    const parts: string[] = [];
+    if (days > 0) parts.push(`${days}d`);
+    if (hours > 0) parts.push(`${hours}h`);
+    if (mins > 0) parts.push(`${mins}m`);
+    if (secs > 0 || parts.length === 0) parts.push(`${secs}d`);
+    return parts.join(' ');
 }
 
 function parseListResponse(res: any): { data: any[]; total: number } {
@@ -71,6 +97,29 @@ function buildStats(rows: VSSAlertHistory[]): DeviceStatRow[] {
   return Array.from(map.values()).sort((a, b) => b.total - a.total);
 }
 
+function groupHistoryByDay(rows: VSSAlertHistory[]) {
+    const map = new Map<string, { count: number, sumDelay: number; maxDelay: number }>();
+    for (const r of rows) {
+        const d = r.detected_at ? new Date(r.detected_at) : null;
+        if (!d || Number.isNaN(d.getTime())) continue;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const cur = map.get(key) || { count: 0, sumDelay: 0, maxDelay: 0 };
+        const delay = r.delay_sec || 0;
+        cur.count += 1;
+        cur.sumDelay += delay;
+        cur.maxDelay = Math.max(cur.maxDelay, delay);
+        map.set(key, cur);
+    }
+    return Array.from(map.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, v]) => ({
+            date,
+            count: v.count,
+            avgDelay: v.count ? Math.round(v.sumDelay / v.count) : 0,
+            maxDelay: v.maxDelay,
+        }));
+}
+
 const VSSMonitor = () => {
   const [tab, setTab] = useState<Tab>('history');
 
@@ -92,6 +141,7 @@ const VSSMonitor = () => {
 
   const [statsRows, setStatsRows] = useState<VSSAlertHistory[]>([]);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [statsView, setStatsView] = useState<StatsView>('summary');
 
   const perPage = 15;
 
@@ -199,6 +249,18 @@ const VSSMonitor = () => {
     for (const r of statsRows) m[r.reason] = (m[r.reason] || 0) + 1;
     return Object.entries(m).sort((a, b) => b[1] - a[1]);
   }, [statsRows]);
+
+  const daySeries = useMemo(() => groupHistoryByDay(statsRows), [statsRows]);
+
+    const topReason = reasonTotals[0];
+    const topDevices = stats.slice(0, 5);
+    const maxDelayEvent = useMemo(() => {
+        let best: VSSAlertHistory | null = null;
+        for (const r of statsRows) {
+            if (!best || (r.delay_sec || 0) > (best.delay_sec || 0)) best = r;
+        }
+        return best;
+    }, [statsRows])
 
   const clearFilters = () => {
     if (tab === 'live') {
@@ -458,7 +520,7 @@ const VSSMonitor = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['WAKTU', 'DEVICE ID', 'NAME', 'ACTION', 'ALARM ID', 'DETAIL', 'DELAY', 'DTU', 'IS LATER'].map(
+                        {['WAKTU', 'DEVICE ID', 'NAME', 'ACTION', 'ALARM ID', 'DETAIL', 'DELAY', 'DTU', 'REPORT TIME', 'IS LATER'].map(
                           (h) => (
                             <th key={h} style={thStyle}>
                               {h}
@@ -511,6 +573,9 @@ const VSSMonitor = () => {
                             </td>
                             <td style={{ ...tdStyle, fontWeight: 600 }}>{r.delay_sec}s</td>
                             <td style={tdStyle}>{r.dtu || '—'}</td>
+                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
+                                {formatReportTime(r.report_time)}
+                            </td>
                             <td style={tdStyle}>{r.is_later ? 'Yes' : 'No'}</td>
                           </tr>
                         ))
@@ -607,167 +672,394 @@ const VSSMonitor = () => {
             ))}
 
           {tab === 'stats' &&
-            (statsLoading ? (
-              <LoadingSpinner message="Menghitung statistik..." />
-            ) : (
-              <div style={{ padding: 16 }}>
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-                    gap: 12,
-                    marginBottom: 16,
-                  }}
-                >
-                  <StatCard label="Periode" value={yearMonth || '—'} />
-                  <StatCard label="Total event kritis" value={String(statsRows.length)} />
-                  <StatCard label="Device terdampak" value={String(stats.length)} />
-                </div>
-
-                <div
-                  style={{
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 10,
-                    overflow: 'hidden',
-                    marginBottom: 16,
-                  }}
-                >
-                  <div
-                    style={{
-                      padding: '12px 14px',
-                      borderBottom: '1px solid #e2e8f0',
-                      background: '#f8fafc',
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>
-                      Top device / kendaraan bermasalah
-                    </div>
-                    <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                      Diurutkan dari jumlah event history terbanyak
-                    </div>
-                  </div>
-                  <div style={{ overflowX: 'auto' }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                      <thead>
-                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                          {['#', 'NAME', 'DEVICE ID', 'TOTAL', 'BREAKDOWN'].map((h) => (
-                            <th key={h} style={thStyle}>
-                              {h}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {stats.length === 0 ? (
-                          <EmptyRow colSpan={5} text="Belum ada data statistik" />
-                        ) : (
-                          stats.slice(0, 20).map((s, idx) => (
-                            <tr
-                              key={s.device_id}
-                              style={{
-                                borderBottom: '1px solid #f1f5f9',
-                                background: idx % 2 === 0 ? '#fff' : '#fafafa',
-                              }}
-                            >
-                              <td style={tdStyle}>{idx + 1}</td>
-                              <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>
-                                {s.device_name}
-                              </td>
-                              <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
-                                {s.device_id}
-                              </td>
-                              <td style={tdStyle}>
-                                <span
-                                  style={{
-                                    display: 'inline-block',
-                                    minWidth: 28,
-                                    textAlign: 'center',
-                                    padding: '2px 8px',
-                                    borderRadius: 20,
-                                    background: '#fef2f2',
-                                    color: '#dc2626',
-                                    fontWeight: 700,
-                                    fontSize: 12,
-                                  }}
-                                >
-                                  {s.total}
-                                </span>
-                              </td>
-                              <td style={tdStyle}>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                  {Object.entries(s.by_reason).map(([reason, n]) => (
-                                    <span
-                                      key={reason}
-                                      style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 4,
-                                      }}
-                                    >
-                                      <ReasonBadge reason={reason} />
-                                      <span style={{ fontSize: 11, color: '#94a3b8' }}>×{n}</span>
-                                    </span>
-                                  ))}
-                                </div>
-                              </td>
-                            </tr>
-                          ))
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                <div
-                  style={{
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 10,
-                    padding: 14,
-                    background: '#fff',
-                  }}
-                >
-                  <div
-                    style={{
-                      fontWeight: 600,
-                      fontSize: 13,
-                      color: '#1e293b',
-                      marginBottom: 10,
-                    }}
-                  >
-                    Distribusi reason
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {reasonTotals.length === 0 ? (
-                      <span style={{ fontSize: 13, color: '#94a3b8' }}>Tidak ada data</span>
-                    ) : (
-                      reasonTotals.map(([reason, n]) => (
-                        <div
-                          key={reason}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            border: '1px solid #e2e8f0',
-                            borderRadius: 8,
-                            padding: '6px 10px',
-                          }}
-                        >
-                          <ReasonBadge reason={reason} />
-                          <span style={{ fontWeight: 700, fontSize: 13, color: '#1e293b' }}>
-                            {n}
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-        </div>
+  (statsLoading ? (
+    <LoadingSpinner message="Menghitung statistik..." />
+  ) : (
+    <div style={{ padding: 16 }}>
+      {/* Switch tampilan */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          marginBottom: 16,
+          flexWrap: 'wrap',
+        }}
+      >
+        {(
+          [
+            { id: 'summary' as StatsView, label: 'Ringkasan', icon: 'bi-speedometer2' },
+            { id: 'percent' as StatsView, label: 'Persentase', icon: 'bi-pie-chart' },
+            { id: 'devices' as StatsView, label: 'Top device', icon: 'bi-truck' },
+          ] as const
+        ).map((v) => (
+          <button
+            key={v.id}
+            type="button"
+            onClick={() => setStatsView(v.id)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '8px 14px',
+              borderRadius: 9,
+              border: `1px solid ${statsView === v.id ? '#6366f1' : '#e2e8f0'}`,
+              background: statsView === v.id ? '#eef2ff' : '#fff',
+              color: statsView === v.id ? '#4338ca' : '#475569',
+              fontWeight: statsView === v.id ? 600 : 500,
+              fontSize: 13,
+              cursor: 'pointer',
+            }}
+          >
+            <i className={`bi ${v.icon}`} />
+            {v.label}
+          </button>
+        ))}
       </div>
-    </div>
-  );
-};
+
+      {/* ===== RINGKASAN (mirip Fleet Delay Summary) ===== */}
+        {statsView === 'summary' && (
+            <>
+            <div
+                style={{
+                background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)',
+                border: '1px solid #e0e7ff',
+                borderRadius: 14,
+                padding: 18,
+                marginBottom: 16,
+                }}
+            >
+                <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b', marginBottom: 6 }}>
+                Fleet event summary
+                </div>
+                <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
+                Periode <strong>{yearMonth || '—'}</strong>
+                {' · '}
+                Total event: <strong>{statsRows.length}</strong>
+                {' · '}
+                Device terdampak: <strong>{stats.length}</strong>
+                {topReason && (
+                    <>
+                    {' · '}Reason terbanyak:{' '}
+                    <strong>
+                        {REASON_STYLE[topReason[0]]?.label || topReason[0]} ({topReason[1]})
+                    </strong>
+                    </>
+                )}
+                </div>
+                {maxDelayEvent && (
+                <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
+                    Delay tertinggi di history:{' '}
+                    <strong style={{ color: '#dc2626' }}>
+                    {formatDelaySec(maxDelayEvent.delay_sec)}
+                    </strong>{' '}
+                    ({maxDelayEvent.device_name || maxDelayEvent.device_id})
+                </div>
+                )}
+                {topDevices.length > 0 && (
+                <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
+                    Top 5 device:{' '}
+                    {topDevices
+                    .map(
+                        (d) =>
+                        `${d.device_name} (${d.total} event)`
+                    )
+                    .join(', ')}
+                </div>
+                )}
+            </div>
+
+            <div
+                style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                gap: 12,
+                marginBottom: 16,
+                }}
+            >
+                <StatCard label="Periode" value={yearMonth || '—'} />
+                <StatCard label="Total event" value={String(statsRows.length)} />
+                <StatCard label="Device" value={String(stats.length)} />
+                <StatCard
+                label="Reason unik"
+                value={String(reasonTotals.length)}
+                />
+            </div>
+
+            {/* Mini line chart: event count per hari */}
+            <div
+                style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: 12,
+                padding: 16,
+                marginBottom: 16,
+                background: '#fff',
+                }}
+            >
+                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
+                Tren event per hari
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                Jumlah event history · garis biru = count, merah = max delay (detik)
+                </div>
+                {daySeries.length === 0 ? (
+                <div style={{ color: '#94a3b8', fontSize: 13, padding: 24, textAlign: 'center' }}>
+                    Belum ada data di periode ini
+                </div>
+                ) : (
+                <DayTrendChart series={daySeries} />
+                )}
+            </div>
+
+            {/* Top devices singkat */}
+            <div
+                style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: 12,
+                overflow: 'hidden',
+                }}
+            >
+                <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                <div style={{ fontWeight: 600, fontSize: 13 }}>Devices bermasalah (top 10)</div>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        {['Device Name', 'Device ID', 'Total event', 'Status'].map((h) => (
+                        <th key={h} style={thStyle}>
+                            {h}
+                        </th>
+                        ))}
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {stats.length === 0 ? (
+                        <EmptyRow colSpan={4} text="Belum ada data" />
+                    ) : (
+                        stats.slice(0, 10).map((s, idx) => (
+                        <tr
+                            key={s.device_id}
+                            style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            background: idx % 2 === 0 ? '#fffbeb' : '#fff',
+                            }}
+                        >
+                            <td style={{ ...tdStyle, fontWeight: 600 }}>{s.device_name}</td>
+                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
+                            {s.device_id}
+                            </td>
+                            <td style={tdStyle}>{s.total}</td>
+                            <td style={tdStyle}>
+                            <span
+                                style={{
+                                padding: '3px 10px',
+                                borderRadius: 20,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                background: '#fef3c7',
+                                color: '#b45309',
+                                }}
+                            >
+                                FLAGGED
+                            </span>
+                            </td>
+                        </tr>
+                        ))
+                    )}
+                    </tbody>
+                </table>
+                </div>
+            </div>
+            </>
+        )}
+
+        {statsView === 'percent' && (
+            <div
+            style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(220px, 280px) 1fr',
+                gap: 16,
+                alignItems: 'start',
+            }}
+            >
+            <div
+                style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: 12,
+                padding: 16,
+                background: '#fff',
+                textAlign: 'center',
+                }}
+            >
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, color: '#1e293b' }}>
+                Komposisi reason
+                </div>
+                {statsRows.length === 0 ? (
+                <div style={{ color: '#94a3b8', fontSize: 13 }}>Tidak ada data</div>
+                ) : (
+                <ReasonPieChart totals={reasonTotals} total={statsRows.length} />
+                )}
+            </div>
+
+            <div
+                style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: 12,
+                padding: 16,
+                background: '#fff',
+                }}
+            >
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14, color: '#1e293b' }}>
+                Persentase per reason
+                </div>
+                {reasonTotals.length === 0 ? (
+                <div style={{ color: '#94a3b8', fontSize: 13 }}>Tidak ada data</div>
+                ) : (
+                reasonTotals.map(([reason, n]) => {
+                    const pct = statsRows.length ? Math.round((n / statsRows.length) * 1000) / 10 : 0;
+                    const style = REASON_STYLE[reason] || {
+                    bg: '#f1f5f9',
+                    color: '#475569',
+                    label: reason,
+                    };
+                    return (
+                    <div key={reason} style={{ marginBottom: 14 }}>
+                        <div
+                        style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            marginBottom: 6,
+                            fontSize: 13,
+                        }}
+                        >
+                        <ReasonBadge reason={reason} />
+                        <span style={{ fontWeight: 700, color: '#1e293b' }}>
+                            {pct}% <span style={{ color: '#94a3b8', fontWeight: 500 }}>({n})</span>
+                        </span>
+                        </div>
+                        <div
+                        style={{
+                            height: 10,
+                            borderRadius: 99,
+                            background: '#f1f5f9',
+                            overflow: 'hidden',
+                        }}
+                        >
+                        <div
+                            style={{
+                            width: `${pct}%`,
+                            height: '100%',
+                            borderRadius: 99,
+                            background: style.color,
+                            transition: 'width .3s ease',
+                            }}
+                        />
+                        </div>
+                    </div>
+                    );
+                })
+                )}
+            </div>
+            </div>
+        )}
+
+        {statsView === 'devices' && (
+            <div
+            style={{
+                border: '1px solid #e2e8f0',
+                borderRadius: 12,
+                overflow: 'hidden',
+            }}
+            >
+            <div
+                style={{
+                padding: '12px 14px',
+                borderBottom: '1px solid #e2e8f0',
+                background: '#f8fafc',
+                }}
+            >
+                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>
+                Top device / kendaraan bermasalah
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                Diurutkan dari jumlah event history terbanyak · {yearMonth}
+                </div>
+            </div>
+            <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                    {['#', 'NAME', 'DEVICE ID', 'TOTAL', 'BREAKDOWN'].map((h) => (
+                        <th key={h} style={thStyle}>
+                        {h}
+                        </th>
+                    ))}
+                    </tr>
+                </thead>
+                <tbody>
+                    {stats.length === 0 ? (
+                    <EmptyRow colSpan={5} text="Belum ada data statistik" />
+                    ) : (
+                    stats.slice(0, 20).map((s, idx) => (
+                        <tr
+                        key={s.device_id}
+                        style={{
+                            borderBottom: '1px solid #f1f5f9',
+                            background: idx % 2 === 0 ? '#fff' : '#fafafa',
+                        }}
+                        >
+                        <td style={tdStyle}>{idx + 1}</td>
+                        <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>
+                            {s.device_name}
+                        </td>
+                        <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
+                            {s.device_id}
+                        </td>
+                        <td style={tdStyle}>
+                            <span
+                            style={{
+                                display: 'inline-block',
+                                minWidth: 28,
+                                textAlign: 'center',
+                                padding: '2px 8px',
+                                borderRadius: 20,
+                                background: '#fef2f2',
+                                color: '#dc2626',
+                                fontWeight: 700,
+                                fontSize: 12,
+                            }}
+                            >
+                            {s.total}
+                            </span>
+                        </td>
+                                    <td style={tdStyle}>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                        {Object.entries(s.by_reason).map(([reason, n]) => (
+                                            <span
+                                            key={reason}
+                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                            >
+                                            <ReasonBadge reason={reason} />
+                                            <span style={{ fontSize: 11, color: '#94a3b8' }}>×{n}</span>
+                                            </span>
+                                        ))}
+                                        </div>
+                                    </td>
+                                    </tr>
+                                ))
+                                )}
+                            </tbody>
+                            </table>
+                        </div>
+                        </div>
+                    )}
+                    </div>
+                ))}
+                    </div>
+                </div>
+                </div>
+            );
+        };
 
 const ReasonBadge = ({ reason }: { reason: string }) => {
   const s = REASON_STYLE[reason] || {
@@ -948,5 +1240,141 @@ const FilterSection = ({ label, children }: { label: string; children: React.Rea
     {children}
   </div>
 );
+
+const PIE_COLORS = ['#6366f1', '#f59e0b', '#ef4444', '#10b981', '#8b5cf6', '#06b6d4', '#f97316', '#64748b'];
+
+function ReasonPieChart({
+  totals,
+  total,
+}: {
+  totals: [string, number][];
+  total: number;
+}) {
+  const size = 180;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = 70;
+  let angle = -Math.PI / 2;
+
+  const slices = totals.map(([reason, n], i) => {
+    const portion = total ? n / total : 0;
+    const start = angle;
+    const end = angle + portion * Math.PI * 2;
+    angle = end;
+    const x1 = cx + r * Math.cos(start);
+    const y1 = cy + r * Math.sin(start);
+    const x2 = cx + r * Math.cos(end);
+    const y2 = cy + r * Math.sin(end);
+    const large = portion > 0.5 ? 1 : 0;
+    const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+    return { reason, n, d, color: PIE_COLORS[i % PIE_COLORS.length], portion };
+  });
+
+  return (
+    <div>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {slices.length === 1 ? (
+          <circle cx={cx} cy={cy} r={r} fill={slices[0].color} />
+        ) : (
+          slices.map((s) => <path key={s.reason} d={s.d} fill={s.color} stroke="#fff" strokeWidth={2} />)
+        )}
+        <circle cx={cx} cy={cy} r={38} fill="#fff" />
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize={14} fontWeight={700} fill="#1e293b">
+          {total}
+        </text>
+        <text x={cx} y={cy + 14} textAnchor="middle" fontSize={10} fill="#94a3b8">
+          event
+        </text>
+      </svg>
+      <div style={{ marginTop: 8, textAlign: 'left' }}>
+        {slices.map((s) => (
+          <div
+            key={s.reason}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 4 }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: 2,
+                background: s.color,
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ color: '#475569', flex: 1 }}>
+              {REASON_STYLE[s.reason]?.label || s.reason}
+            </span>
+            <span style={{ fontWeight: 600 }}>{Math.round(s.portion * 1000) / 10}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DayTrendChart({
+  series,
+}: {
+  series: { date: string; count: number; avgDelay: number; maxDelay: number }[];
+}) {
+  const w = 640;
+  const h = 180;
+  const pad = { t: 16, r: 12, b: 28, l: 36 };
+  const innerW = w - pad.l - pad.r;
+  const innerH = h - pad.t - pad.b;
+  const maxCount = Math.max(1, ...series.map((s) => s.count));
+  const maxDelay = Math.max(1, ...series.map((s) => s.maxDelay));
+
+  const x = (i: number) => pad.l + (series.length <= 1 ? innerW / 2 : (i / (series.length - 1)) * innerW);
+  const yCount = (v: number) => pad.t + innerH - (v / maxCount) * innerH;
+  const yDelay = (v: number) => pad.t + innerH - (v / maxDelay) * innerH;
+
+  const lineCount = series.map((s, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${yCount(s.count)}`).join(' ');
+  const lineDelay = series.map((s, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${yDelay(s.maxDelay)}`).join(' ');
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ maxHeight: 200 }}>
+      {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+        const yy = pad.t + innerH * (1 - t);
+        return (
+          <line
+            key={t}
+            x1={pad.l}
+            x2={w - pad.r}
+            y1={yy}
+            y2={yy}
+            stroke="#e2e8f0"
+            strokeWidth={1}
+          />
+        );
+      })}
+      <path d={lineDelay} fill="none" stroke="#ef4444" strokeWidth={2} />
+      <path d={lineCount} fill="none" stroke="#6366f1" strokeWidth={2} />
+      {series.map((s, i) => (
+        <g key={s.date}>
+          <circle cx={x(i)} cy={yCount(s.count)} r={3} fill="#6366f1" />
+          <circle cx={x(i)} cy={yDelay(s.maxDelay)} r={3} fill="#ef4444" />
+          {(i === 0 || i === series.length - 1 || i % Math.ceil(series.length / 6) === 0) && (
+            <text
+              x={x(i)}
+              y={h - 8}
+              textAnchor="middle"
+              fontSize={9}
+              fill="#94a3b8"
+            >
+              {s.date.slice(5)}
+            </text>
+          )}
+        </g>
+      ))}
+      <text x={pad.l} y={12} fontSize={10} fill="#6366f1">
+        Event count
+      </text>
+      <text x={pad.l + 80} y={12} fontSize={10} fill="#ef4444">
+        Max delay (s)
+      </text>
+    </svg>
+  );
+}
 
 export default VSSMonitor;

@@ -3,185 +3,241 @@ import useAuthStore from '../../store/authStore';
 import { useSidebar } from './SidebarContext';
 import resolveStorageUrl from '../../utils/storage';
 
+type NavItem = {
+  to: string;
+  label: string;
+  icon: string;
+  /** match path prefix (untuk nested route) */
+  match?: 'exact' | 'prefix';
+};
+
+const NAV_ITEMS: NavItem[] = [
+  { to: '/dashboard', label: 'Dashboard', icon: 'bi-house-door', match: 'exact' },
+  { to: '/reports', label: 'Tickets', icon: 'bi-list-task', match: 'prefix' },
+  { to: '/daily', label: 'Report Daily/Weekly', icon: 'bi-file-earmark-text', match: 'prefix' },
+  { to: '/vss/monitor', label: 'VSS Monitoring', icon: 'bi-display', match: 'prefix' },
+  { to: '/accounts', label: 'Accounts', icon: 'bi-people', match: 'prefix' },
+];
+
 const Sidebar = () => {
   const { user } = useAuthStore();
   const location = useLocation();
   const { isCollapsed, toggleSidebar } = useSidebar();
   const initial = user?.name?.charAt(0)?.toUpperCase() ?? 'U';
 
-  const isLinkActive = (to: string) => {
-    if (to === '/dashboard') return location.pathname === '/dashboard';
-    if (to === '/reports') return location.pathname.startsWith('/reports');
-    if (to === '/accounts') return location.pathname.startsWith('/accounts');
-    if (to === '/daily') return location.pathname.startsWith('/daily');
-    return false;
+  const isItemActive = (item: NavItem) => {
+    const path = location.pathname.replace(/\/+$/, '') || '/';
+    const to = item.to.replace(/\/+$/, '') || '/';
+    if (item.match === 'exact') return path === to;
+    return path === to || path.startsWith(to + '/');
   };
+
+  const width = isCollapsed ? 72 : 260;
 
   return (
     <aside
-      className="d-flex flex-column"
       style={{
-        width: isCollapsed ? 72 : 260,
+        width,
         minHeight: '100vh',
-        background: '#1e2937',
+        background: '#0f172a',
         color: '#fff',
         flexShrink: 0,
         position: 'fixed',
         top: 0,
         bottom: 0,
+        left: 0,
         zIndex: 1050,
-        transition: 'width 0.3s ease-in-out',
-        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+        borderRight: '1px solid rgba(255,255,255,0.06)',
       }}
     >
-      <div className="px-3 py-4 border-bottom border-white border-opacity-10 d-flex align-items-center relative">
-        <div className="d-flex align-items-center gap-3 w-100">
-          <div
-            className="d-flex align-items-center justify-content-center"
-            style={{
-              width: 42,
-              height: 42,
-              background: '#3b82f6',
-              borderRadius: 8,
-              flexShrink: 0,
-            }}
-          >
-            <i className="bi bi-ticket-perforated fs-4 text-white"></i>
-          </div>
-
-          {!isCollapsed && (
-            <div className="flex-grow-1">
-              <div className="fw-bold fs-6">Management System</div>
-              <div className="text-light opacity-75" style={{ fontSize: 13 }}>Help You Manage Report</div>
-            </div>
-          )}
-        </div>
-
-        <button
-          onClick={toggleSidebar}
-          className="btn btn-link text-light p-2 hover-bg-secondary position-absolute"
+      {/* ===== Brand ===== */}
+      <div
+        style={{
+          height: 64,
+          padding: isCollapsed ? '0 12px' : '0 16px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          borderBottom: '1px solid rgba(255,255,255,0.06)',
+          flexShrink: 0,
+        }}
+      >
+        <div
           style={{
-            right: isCollapsed ? '8px' : '12px',
-            top: '50%',
-            transform: 'translateY(-50%)',
-            width: isCollapsed ? 38 : 34,
-            height: isCollapsed ? 38 : 34,
+            width: 40,
+            height: 40,
+            borderRadius: 10,
+            background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            borderRadius: '50%',
-            backgroundColor: isCollapsed ? 'rgba(59, 130, 246, 0.2)' : 'transparent',
-            border: isCollapsed ? '1px solid rgba(59, 130, 246, 0.3)' : 'none',
-            zIndex: 10,
+            flexShrink: 0,
+            boxShadow: '0 4px 12px rgba(59,130,246,0.35)',
           }}
-          title={isCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
         >
-          <i 
-            className={`bi ${isCollapsed ? 'bi-chevron-right' : 'bi-chevron-left'} fs-5`}
-            style={{ 
-              transition: 'transform 0.3s ease',
-              fontWeight: 'bold'
-            }}
-          ></i>
-        </button>
+          <i className="bi bi-ticket-perforated" style={{ fontSize: 18, color: '#fff' }} />
+        </div>
+
+        <div
+          style={{
+            overflow: 'hidden',
+            whiteSpace: 'nowrap',
+            opacity: isCollapsed ? 0 : 1,
+            width: isCollapsed ? 0 : 'auto',
+            transition: 'opacity 0.2s ease, width 0.2s ease',
+          }}
+        >
+          <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>Management System</div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2 }}>
+            Help You Manage Report
+          </div>
+        </div>
       </div>
 
-      <div className="flex-grow-1 py-4">
+      {/* ===== Nav ===== */}
+      <nav
+        style={{
+          flex: 1,
+          padding: '16px 10px',
+          overflowY: 'auto',
+          overflowX: 'hidden',
+        }}
+      >
         {!isCollapsed && (
-          <div className="text-uppercase text-light opacity-50 small px-4 mb-3">
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: '0.08em',
+              color: 'rgba(255,255,255,0.35)',
+              textTransform: 'uppercase',
+              padding: '0 10px 10px',
+            }}
+          >
             Main Menu
           </div>
         )}
 
-        <NavLink
-          to="/dashboard"
-          className={({ isActive }) =>
-            `d-flex align-items-center px-4 py-3 mb-1 text-decoration-none transition-all ${
-              isLinkActive('/dashboard') ? 'bg-primary text-white' : 'text-light hover-bg-secondary'
-            }`
-          }
-          style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
-        >
-          <i className="bi bi-house-door fs-5"></i>
-          {!isCollapsed && <span className="fw-medium ms-3">Dashboard</span>}
-        </NavLink>
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {NAV_ITEMS.map((item) => {
+            const active = isItemActive(item);
+            return (
+              <li key={item.to} style={{ marginBottom: 4 }}>
+                <NavLink
+                  to={item.to}
+                  title={isCollapsed ? item.label : undefined}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    height: 44,
+                    padding: isCollapsed ? '0' : '0 12px',
+                    justifyContent: isCollapsed ? 'center' : 'flex-start',
+                    borderRadius: 10,
+                    textDecoration: 'none',
+                    color: active ? '#fff' : 'rgba(255,255,255,0.65)',
+                    background: active
+                      ? 'linear-gradient(90deg, #3b82f6, #6366f1)'
+                      : 'transparent',
+                    boxShadow: active ? '0 4px 14px rgba(59,130,246,0.35)' : 'none',
+                    fontWeight: active ? 600 : 500,
+                    fontSize: 13.5,
+                    transition: 'background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!active) {
+                      e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
+                      e.currentTarget.style.color = '#fff';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!active) {
+                      e.currentTarget.style.background = 'transparent';
+                      e.currentTarget.style.color = 'rgba(255,255,255,0.65)';
+                    }
+                  }}
+                >
+                  <i
+                    className={`bi ${item.icon}`}
+                    style={{
+                      fontSize: 18,
+                      width: 22,
+                      textAlign: 'center',
+                      flexShrink: 0,
+                    }}
+                  />
+                  {!isCollapsed && (
+                    <span
+                      style={{
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {item.label}
+                    </span>
+                  )}
+                </NavLink>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
 
-        <NavLink
-          to="/reports"
-          className={({ isActive }) =>
-            `d-flex align-items-center px-4 py-3 mb-1 text-decoration-none transition-all ${
-              isLinkActive('/reports') ? 'bg-primary text-white' : 'text-light hover-bg-secondary'
-            }`
-          }
-          style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
+      {/* ===== Footer: user + collapse (tidak nutup menu) ===== */}
+      <div
+        style={{
+          flexShrink: 0,
+          borderTop: '1px solid rgba(255,255,255,0.06)',
+          padding: 12,
+        }}
+      >
+        {/* User */}
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            padding: isCollapsed ? '6px 0' : '8px 8px',
+            justifyContent: isCollapsed ? 'center' : 'flex-start',
+            marginBottom: 8,
+            borderRadius: 10,
+          }}
+          title={user?.name || 'User'}
         >
-          <i className="bi bi-list-task fs-5"></i>
-          {!isCollapsed && <span className="fw-medium ms-3">Tickets</span>}
-        </NavLink>
-
-        <NavLink
-          to="/daily"
-          className={({ isActive }) =>
-            `d-flex align-items-center px-4 py-3 mb-1 text-decoration-none transition-all ${
-              isLinkActive('/daily') ? 'bg-primary text-white' : 'text-light hover-bg-secondary'
-            }`
-          }
-          style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
-        >
-          <i className="bi bi-file-earmark-text fs-5"></i>
-          {!isCollapsed && <span className="fw-medium ms-3">Report Daily/Weekly</span>}
-        </NavLink>
-
-        <NavLink
-          to="/vss/monitor"
-          className={({ isActive }) =>
-            `d-flex align-items-center px-4 py-3 mb-1 text-decoration-none transition-all ${
-              isLinkActive('/vss/monitor') ? 'bg-primary text-white' : 'text-light hover-bg-secondary'
-            }`
-          }
-          style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
-        >
-          <i className="bi bi-display fs-5"></i>
-          {!isCollapsed && <span className="fw-medium ms-3">VSS Monitoring</span>}
-        </NavLink>
-
-        <NavLink
-          to="/accounts"
-          className={({ isActive }) =>
-            `d-flex align-items-center px-4 py-3 mb-1 text-decoration-none transition-all ${
-              isLinkActive('/accounts') ? 'bg-primary text-white' : 'text-light hover-bg-secondary'
-            }`
-          }
-          style={{ justifyContent: isCollapsed ? 'center' : 'flex-start' }}
-        >
-          <i className="bi bi-people fs-5"></i>
-          {!isCollapsed && <span className="fw-medium ms-3">Accounts</span>}
-        </NavLink>
-      </div>
-
-      <div className="p-3 border-top border-white border-opacity-10 mt-auto">
-        <div className="d-flex align-items-center gap-3">
           <div
             style={{
-              width: 42,
-              height: 42,
+              width: 36,
+              height: 36,
               borderRadius: '50%',
               overflow: 'hidden',
-              background: '#e2e8f0',
+              background: '#1e293b',
               flexShrink: 0,
-              border: '2px solid rgba(255,255,255,0.2)',
+              border: '2px solid rgba(255,255,255,0.12)',
             }}
           >
             {user?.image ? (
               <img
-                src={resolveStorageUrl(user?.image)}
+                src={resolveStorageUrl(user.image)}
                 alt={user.name || 'User'}
                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
               />
             ) : (
               <div
-                className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold"
-                style={{ width: '100%', height: '100%', fontSize: 18 }}
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: '#3b82f6',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 14,
+                }}
               >
                 {initial}
               </div>
@@ -189,14 +245,70 @@ const Sidebar = () => {
           </div>
 
           {!isCollapsed && (
-            <div className="overflow-hidden">
-              <div className="fw-semibold text-truncate">{user?.name || 'User Unknown'}</div>
-              <div className="text-light opacity-75" style={{ fontSize: 13 }}>
+            <div style={{ overflow: 'hidden', minWidth: 0 }}>
+              <div
+                style={{
+                  fontWeight: 600,
+                  fontSize: 13,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {user?.name || 'User Unknown'}
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: 'rgba(255,255,255,0.45)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
                 {user?.email}
               </div>
             </div>
           )}
         </div>
+
+        {/* Toggle collapse — di bawah, tidak menimpa item menu */}
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          title={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          style={{
+            width: '100%',
+            height: 40,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: isCollapsed ? 'center' : 'space-between',
+            gap: 8,
+            padding: isCollapsed ? 0 : '0 12px',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 10,
+            background: 'rgba(255,255,255,0.04)',
+            color: 'rgba(255,255,255,0.75)',
+            cursor: 'pointer',
+            fontSize: 13,
+            fontWeight: 500,
+            transition: 'background 0.15s ease, color 0.15s ease',
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.1)';
+            e.currentTarget.style.color = '#fff';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
+            e.currentTarget.style.color = 'rgba(255,255,255,0.75)';
+          }}
+        >
+          {!isCollapsed && <span>Collapse</span>}
+          <i
+            className={`bi ${isCollapsed ? 'bi-chevron-double-right' : 'bi-chevron-double-left'}`}
+            style={{ fontSize: 14 }}
+          />
+        </button>
       </div>
     </aside>
   );

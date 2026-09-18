@@ -85,7 +85,7 @@ export const REASON_OPTIONS = [
   { value: 'disconnect', label: 'Disconnect' },
   { value: 'storage_full', label: 'Storage Full' },
   { value: 'high_cpu', label: 'High CPU' },
-  { value: 'alarm', label: 'Alarm (80004)' },
+  { value: 'alarm', label: 'Alarm' },
 ] as const;
 
 export const REASON_STYLE: Record<string, { bg: string; color: string; label: string }> = {
