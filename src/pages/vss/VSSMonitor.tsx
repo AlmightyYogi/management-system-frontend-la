@@ -602,7 +602,7 @@ const VSSMonitor = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['WAKTU', 'DEVICE ID', 'NAME', 'ACTION', 'ALARM ID', 'DELAY', 'IS EMAIL SENT', 'EMAIL', 'BULAN'].map(
+                        {['WAKTU', 'DEVICE ID', 'NAME', 'ACTION', 'ALARM ID', 'DELAY'].map(
                           (h) => (
                             <th key={h} style={thStyle}>
                               {h}
@@ -645,7 +645,7 @@ const VSSMonitor = () => {
                               <ReasonBadge reason={r.reason} />
                             </td> */}
                             <td style={{ ...tdStyle, fontWeight: 600 }}>{r.delay_sec}s</td>
-                            <td style={tdStyle}>
+                            {/* <td style={tdStyle}>
                               {r.email_sent ? (
                                 <span style={{ color: '#16a34a', fontWeight: 600, fontSize: 12 }}>
                                   Sent
@@ -654,7 +654,7 @@ const VSSMonitor = () => {
                                 <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
                               )}
                             </td>
-                            <td style={tdStyle}>{r.year_month}</td>
+                            <td style={tdStyle}>{r.year_month}</td> */}
                           </tr>
                         ))
                       )}
