@@ -77,6 +77,38 @@ export type DeviceStatRow = {
   by_reason: Record<string, number>;
 };
 
+export interface VSSDeviceLive {
+  device_id: string;
+  device_name: string;
+  detected_at: string;
+  node_id?: string;
+  dtu?: string;
+  report_time?: number;
+  is_later?: boolean;
+  delay_sec: number;
+  last_seen?: string;
+  action?: string;
+  status: string;
+  reasons?: string[];
+  cpu?: string;
+  storage_free?: string;
+}
+
+export interface VSSTrafficStats {
+  total_messages: number;
+  total_80003: number;
+  total_80004: number;
+  device_count: number;
+  normal_count: number;
+  issue_count: number;
+}
+
+export interface VSSLiveResult {
+  traffic: VSSTrafficStats;
+  data: VSSDeviceLive[];
+  total: number;
+}
+
 export const REASON_OPTIONS = [
   { value: '', label: 'Semua' },
   { value: 'delayed', label: 'Delayed' },

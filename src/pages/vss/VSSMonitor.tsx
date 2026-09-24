@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../../services/api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import type { DeviceStatRow, VSSAlertHistory, VSSDelayEvent} from '../../types/vss';
+import type { DeviceStatRow, VSSAlertHistory, VSSDelayEvent, VSSDeviceLive, VSSTrafficStats} from '../../types/vss';
 import { REASON_OPTIONS, REASON_STYLE, inputStyle, clearBtnStyle, btnOutline, btnPrimary, thStyle, tdStyle } from '../../types/vss';
 
 const SIDEBAR_W = 240;
@@ -20,6 +20,23 @@ function currentYearMonth() {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}`;
 }
+
+// function liveDelay(r: VSSDeviceLive): number {
+//   if (r.dtu) {
+//     const t = new Date(r.dtu.replace(' ', 'T') + '+07:00').getTime();
+//     if (!Number.isNaN(t)) {
+//       return Math.max(0, Math.floor((Date.now() - t) / 1000));
+//     }
+//   }
+//   if (r.report_time && r.report_time > 0) {
+//     const ms =
+//       r.report_time < 1_000_000_000_000
+//         ? r.report_time * 1000
+//         : r.report_time;
+//     return Math.max(0, Math.floor((Date.now() - ms) / 1000));
+//   }
+//   return r.delay_sec ?? 0;
+// }
 
 function formatDateTime(value?: string) {
   if (!value) return '—';
@@ -61,7 +78,7 @@ function formatDelaySec(sec?: number) {
     if (days > 0) parts.push(`${days}d`);
     if (hours > 0) parts.push(`${hours}h`);
     if (mins > 0) parts.push(`${mins}m`);
-    if (secs > 0 || parts.length === 0) parts.push(`${secs}d`);
+    if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
     return parts.join(' ');
 }
 
@@ -125,10 +142,15 @@ const VSSMonitor = () => {
 
   const [liveDate, setLiveDate] = useState(todayStr());
   const [liveReason, setLiveReason] = useState('');
+  // const [liveTick, setLiveTick] = useState(0);
   const [liveDevice, setLiveDevice] = useState('');
+  const [liveAction, setLiveAction] = useState('');
+  const [liveStatus, setLiveStatus] = useState('');
   const [livePage, setLivePage] = useState(1);
-  const [liveRows, setLiveRows] = useState<VSSDelayEvent[]>([]);
+  const [liveRows, setLiveRows] = useState<VSSDeviceLive[]>([]);
   const [liveTotal, setLiveTotal] = useState(0);
+  const [liveTraffic, setLiveTraffic] = useState<VSSTrafficStats | null>(null);
+  const [onlyIssue, setOnlyIssue] = useState(false);
   const [liveLoading, setLiveLoading] = useState(false);
 
   const [yearMonth, setYearMonth] = useState(currentYearMonth());
@@ -145,27 +167,35 @@ const VSSMonitor = () => {
 
   const perPage = 15;
 
-  const loadLive = useCallback(async () => {
-    setLiveLoading(true);
+  const fetchLive = useCallback(async (showSpinner: boolean) => {
+    if (showSpinner) setLiveLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (liveDate) params.append('date', liveDate);
-      if (liveReason) params.append('reason', liveReason);
-      if (liveDevice) params.append('device_name', liveDevice);
-      params.append('page', String(livePage));
-      params.append('per_page', String(perPage));
+        const params = new URLSearchParams();
+        if (liveDevice) params.append('device_name', liveDevice);
+        if (liveAction) params.append('action', liveAction);
+        if (liveStatus) params.append('status', liveStatus);
+        if (onlyIssue) params.append('only_issue', '1');
+        params.append('page', String(livePage));
+        params.append('per_page', String(perPage));
 
-      const res = await api.get(`/vss/delays?${params.toString()}`);
-      const { data, total } = parseListResponse(res);
-      setLiveRows(data as VSSDelayEvent[]);
-      setLiveTotal(total);
+        const res = await api.get(`/vss/live?${params.toString()}`);
+        const body = res.data?.data ?? res.data;
+        setLiveRows((body?.data as VSSDeviceLive[]) || []);
+        setLiveTotal(body?.total ?? 0);
+        setLiveTraffic(body?.traffic ?? null);
     } catch {
-      setLiveRows([]);
-      setLiveTotal(0);
+        if (showSpinner) {
+        setLiveRows([]);
+        setLiveTotal(0);
+        setLiveTraffic(null);
+        }
     } finally {
-      setLiveLoading(false);
+        if (showSpinner) setLiveLoading(false);
     }
-  }, [liveDate, liveReason, liveDevice, livePage]);
+    }, [liveDevice, liveAction, liveStatus, onlyIssue, livePage]);
+
+  const loadLive = useCallback(() => fetchLive(true), [fetchLive]);
+  const loadLiveSoft = useCallback(() => fetchLive(false), [fetchLive]);
 
   const loadHistory = useCallback(async () => {
     setHistLoading(true);
@@ -188,6 +218,20 @@ const VSSMonitor = () => {
       setHistLoading(false);
     }
   }, [yearMonth, histReason, histDevice, histPage]);
+
+  const filteredLiveRows = useMemo(() => {
+    if (!liveDate) return liveRows;
+    return liveRows.filter((r) => {
+        if (!r.last_seen) return false;
+        const d = new Date(r.last_seen);
+        if (Number.isNaN(d.getTime())) return false;
+        // bandingkan YYYY-MM-DD lokal
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, '0');
+        const day = String(d.getDate()).padStart(2, '0');
+        return `${y}-${m}-${day}` === liveDate;
+    });
+    }, [liveRows, liveDate]);
 
   const loadStats = useCallback(async () => {
     setStatsLoading(true);
@@ -228,13 +272,21 @@ const VSSMonitor = () => {
 
   useEffect(() => {
     if (tab !== 'live') return;
-    const id = setInterval(() => loadLive(), 60_000);
+    const id = setInterval(() => {
+        loadLiveSoft();
+    }, 3_000);
     return () => clearInterval(id);
-  }, [tab, loadLive]);
+    }, [tab, loadLiveSoft]);
+
+    // useEffect(() => {
+    // if (tab !== 'live') return;
+    // const id = setInterval(() => setLiveTick((t) => t + 1), 1_000);
+    // return () => clearInterval(id);
+    // }, [tab]);
 
   useEffect(() => {
     setLivePage(1);
-  }, [liveDate, liveReason, liveDevice]);
+  }, [liveDevice, liveAction, liveStatus, onlyIssue]);
 
   useEffect(() => {
     setHistPage(1);
@@ -264,22 +316,30 @@ const VSSMonitor = () => {
 
   const clearFilters = () => {
     if (tab === 'live') {
-      setLiveDate(todayStr());
-      setLiveReason('');
-      setLiveDevice('');
-      setLivePage(1);
+        setLiveDate(todayStr());
+        setLiveDevice('');
+        setLiveAction('');
+        setLiveStatus('');
+        setOnlyIssue(false);
+        setLivePage(1);
     } else {
-      setYearMonth(currentYearMonth());
-      setHistReason('');
-      setHistDevice('');
-      setHistPage(1);
+        setYearMonth(currentYearMonth());
+        setHistReason('');
+        setHistDevice('');
+        setHistPage(1);
     }
-  };
+    };
 
-  const hasFilters =
+    const hasFilters =
     tab === 'live'
-      ? !!(liveReason || liveDevice || liveDate !== todayStr())
-      : !!(histReason || histDevice || yearMonth !== currentYearMonth());
+        ? !!(
+            liveDevice ||
+            liveAction ||
+            liveStatus ||
+            onlyIssue ||
+            liveDate !== todayStr()
+        )
+        : !!(histReason || histDevice || yearMonth !== currentYearMonth());
 
   const refresh = () => {
     if (tab === 'live') loadLive();
@@ -289,10 +349,10 @@ const VSSMonitor = () => {
 
   const subtitle =
     tab === 'live'
-      ? liveTotal > 0
-        ? `${(livePage - 1) * perPage + 1}–${Math.min(livePage * perPage, liveTotal)} dari ${liveTotal} event (file log)`
-        : '0 event (file log)'
-      : tab === 'history'
+        ? liveTotal > 0
+        ? `${(livePage - 1) * perPage + 1}–${Math.min(livePage * perPage, liveTotal)} dari ${liveTotal} device (live)`
+        : '0 device (live) — menunggu traffic WS'
+        : tab === 'history'
         ? histTotal > 0
           ? `${(histPage - 1) * perPage + 1}–${Math.min(histPage * perPage, histTotal)} dari ${histTotal} history`
           : '0 history kritis'
@@ -359,39 +419,78 @@ const VSSMonitor = () => {
 
           {tab === 'live' ? (
             <>
-              <FilterSection label="TANGGAL LOG">
+                <FilterSection label="TANGGAL (LAST SEEN)">
                 <input
-                  type="date"
-                  value={liveDate}
-                  onChange={(e) => setLiveDate(e.target.value)}
-                  style={inputStyle}
+                    type="date"
+                    value={liveDate}
+                    onChange={(e) => setLiveDate(e.target.value)}
+                    style={inputStyle}
                 />
-              </FilterSection>
-              <FilterSection label="REASON">
+                </FilterSection>
+
+                <FilterSection label="DEVICE NAME / ID">
+                <input
+                    type="text"
+                    placeholder="Nama atau ID device..."
+                    value={liveDevice}
+                    onChange={(e) => setLiveDevice(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && loadLive()}
+                    style={inputStyle}
+                />
+                </FilterSection>
+
+                <FilterSection label="ACTION">
                 <select
-                  value={liveReason}
-                  onChange={(e) => setLiveReason(e.target.value)}
-                  style={inputStyle}
+                    value={liveAction}
+                    onChange={(e) => setLiveAction(e.target.value)}
+                    style={inputStyle}
                 >
-                  {REASON_OPTIONS.map((o) => (
-                    <option key={o.value || 'all'} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
+                    <option value="">Semua action</option>
+                    <option value="80003">80003 (status)</option>
+                    <option value="80004">80004 (alarm)</option>
+                    <option value="stale">stale (no heartbeat)</option>
                 </select>
-              </FilterSection>
-              <FilterSection label="DEVICE NAME">
+                </FilterSection>
+
+                <FilterSection label="STATUS">
+                <select
+                    value={liveStatus}
+                    onChange={(e) => setLiveStatus(e.target.value)}
+                    style={inputStyle}
+                >
+                    <option value="">Semua status</option>
+                    <option value="NORMAL">NORMAL</option>
+                    <option value="DELAYED">DELAYED</option>
+                    <option value="STALE">STALE</option>
+                    <option value="ALARM">ALARM</option>
+                    <option value="STORAGE_FULL">STORAGE_FULL</option>
+                    <option value="HIGH_CPU">HIGH_CPU</option>
+                    <option value="ISSUE">ISSUE</option>
+                </select>
+                </FilterSection>
+
+                <label
+                style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 13,
+                    marginBottom: 12,
+                    cursor: 'pointer',
+                }}
+                >
                 <input
-                  type="text"
-                  placeholder="Cari nama device..."
-                  value={liveDevice}
-                  onChange={(e) => setLiveDevice(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && loadLive()}
-                  style={inputStyle}
+                    type="checkbox"
+                    checked={onlyIssue}
+                    onChange={(e) => {
+                    setOnlyIssue(e.target.checked);
+                    setLivePage(1);
+                    }}
                 />
-              </FilterSection>
+                Hanya yang bermasalah
+                </label>
             </>
-          ) : (
+            ) : (
             <>
               <FilterSection label="BULAN (YYYY-MM)">
                 <input
@@ -439,7 +538,6 @@ const VSSMonitor = () => {
         </div>
       </div>
 
-      {/* Main */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div
           style={{
@@ -503,6 +601,24 @@ const VSSMonitor = () => {
           </div>
         )}
 
+        {tab === 'live' && liveTraffic && (
+            <div
+                style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                gap: 10,
+                marginBottom: 16,
+                }}
+            >
+                <StatCard label="WS traffic" value={String(liveTraffic.total_messages)} />
+                <StatCard label="80003" value={String(liveTraffic.total_80003)} />
+                <StatCard label="80004" value={String(liveTraffic.total_80004)} />
+                <StatCard label="Devices" value={String(liveTraffic.device_count)} />
+                <StatCard label="Normal" value={String(liveTraffic.normal_count)} />
+                <StatCard label="Issue" value={String(liveTraffic.issue_count)} />
+            </div>
+            )}
+
         <div
           style={{
             background: '#fff',
@@ -513,14 +629,14 @@ const VSSMonitor = () => {
         >
           {tab === 'live' &&
             (liveLoading ? (
-              <LoadingSpinner message="Memuat live delays..." />
+              <LoadingSpinner message="Memuat live status..." />
             ) : (
               <>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['WAKTU', 'DEVICE ID', 'NAME', 'ACTION', 'ALARM ID', 'DETAIL', 'DELAY', 'DTU', 'REPORT TIME', 'IS LATER'].map(
+                        {['NAME', 'DEVICE ID', 'STATUS', 'DELAY', 'DTU', 'REPORT TIME', 'LAST SEEN', 'ACTION', 'IS LATER'].map(
                           (h) => (
                             <th key={h} style={thStyle}>
                               {h}
@@ -530,56 +646,60 @@ const VSSMonitor = () => {
                       </tr>
                     </thead>
                     <tbody>
-                      {liveRows.length === 0 ? (
-                        <EmptyRow colSpan={10} text="Tidak ada event di file log untuk filter ini" />
-                      ) : (
-                        liveRows.map((r, idx) => (
-                          <tr
-                            key={`${r.device_id}-${r.detected_at}-${r.reason}-${idx}`}
-                            style={{
-                              borderBottom: '1px solid #f1f5f9',
-                              background: idx % 2 === 0 ? '#fff' : '#fafafa',
-                            }}
-                            onMouseEnter={(e) => (e.currentTarget.style.background = '#f0f4ff')}
-                            onMouseLeave={(e) =>
-                              (e.currentTarget.style.background =
-                                idx % 2 === 0 ? '#fff' : '#fafafa')
-                            }
-                          >
-                            <td style={tdStyle}>{formatDateTime(r.detected_at)}</td>
-                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
-                              {r.device_id}
-                            </td>
-                            <td style={{ ...tdStyle, fontWeight: 500, color: '#1e293b' }}>
-                              {r.device_name || '—'}
-                            </td>
-                            {/* <td style={tdStyle}>
-                              <ReasonBadge reason={r.reason} />
-                            </td> */}
-                            <td style={tdStyle}>{r.action || '—'}</td>
-                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>
-                            {r.alarm_id || '—'}
-                            </td>
-                            <td
-                            style={{
-                                ...tdStyle,
-                                maxWidth: 180,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                            }}
-                            title={r.alarm_detail || undefined}
+                        {filteredLiveRows.length === 0 ? (
+                            <EmptyRow
+                            colSpan={9}
+                            text="Belum ada data live untuk filter ini"
+                            />
+                        ) : (
+                            filteredLiveRows.map((r, idx) => (
+                            <tr
+                                key={`${r.device_id}-${r.last_seen ?? ''}-${idx}`}
+                                style={{
+                                borderBottom: '1px solid #f1f5f9',
+                                background: idx % 2 === 0 ? '#fff' : '#fafafa',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = '#f0f4ff')}
+                                onMouseLeave={(e) =>
+                                (e.currentTarget.style.background =
+                                    idx % 2 === 0 ? '#fff' : '#fafafa')
+                                }
                             >
-                            {r.alarm_detail || '—'}
-                            </td>
-                            <td style={{ ...tdStyle, fontWeight: 600 }}>{r.delay_sec}s</td>
-                            <td style={tdStyle}>{r.dtu || '—'}</td>
-                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
+                                <td style={{ ...tdStyle, fontWeight: 600 }}>{r.device_name || '—'}</td>
+                                <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
+                                {r.device_id}
+                                </td>
+                                <td style={tdStyle}>
+                                <span
+                                    style={{
+                                    padding: '3px 10px',
+                                    borderRadius: 20,
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    background: r.status === 'NORMAL' ? '#dcfce7' : '#fef3c7',
+                                    color: r.status === 'NORMAL' ? '#16a34a' : '#b45309',
+                                    }}
+                                >
+                                    {r.status || '—'}
+                                </span>
+                                </td>
+                                <td
+                                    style={{ ...tdStyle, fontWeight: 600 }}
+                                    // title={`${liveDelay(r)}s`}
+                                    >
+                                    {formatDelaySec(r.delay_sec ?? 0)}
+                                    {/* <span style={{ display: 'none' }}>{liveTick}</span> */}
+                                </td>
+                                <td style={tdStyle}>{r.dtu || '—'}</td>
+                                <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
                                 {formatReportTime(r.report_time)}
-                            </td>
-                            <td style={tdStyle}>{r.is_later ? 'Yes' : 'No'}</td>
-                          </tr>
-                        ))
-                      )}
+                                </td>
+                                <td style={tdStyle}>{formatDateTime(r.last_seen)}</td>
+                                <td style={tdStyle}>{r.action || '—'}</td>
+                                <td style={tdStyle}>{r.is_later ? 'Yes' : 'No'}</td>
+                            </tr>
+                            ))
+                        )}
                     </tbody>
                   </table>
                 </div>
