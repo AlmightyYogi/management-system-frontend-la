@@ -77,6 +77,20 @@ export type DeviceStatRow = {
   by_reason: Record<string, number>;
 };
 
+export type VSSMinuteTraffic = {
+  minute: string;
+  counts: Record<string, number>;
+  total: number;
+};
+
+export type VSSTrafficDetail = {
+  totals: Record<string, number>;
+  total_messages: number;
+  current_minute: VSSMinuteTraffic;
+  series: VSSMinuteTraffic[];
+  tracked_actions: string[];
+};
+
 export interface VSSDeviceLive {
   device_id: string;
   device_name: string;
@@ -128,6 +142,14 @@ export const REASON_STYLE: Record<string, { bg: string; color: string; label: st
   storage_full: { bg: '#f5f3ff', color: '#7c3aed', label: 'Storage Full' },
   high_cpu: { bg: '#eef2ff', color: '#4338ca', label: 'High CPU' },
   alarm: { bg: '#fef2f2', color: '#b91c1c', label: 'Alarm' },
+} as const;
+
+export const TRAFFIC_COLORS: Record<string, string> = {
+  '80003': '#22c55e',
+  '80004': '#eab308',
+  '80005': '#ef4444',
+  '80007': '#06b6d4',
+  '80030': '#8b5cf6',
 } as const;
 
 export const inputStyle: React.CSSProperties = {

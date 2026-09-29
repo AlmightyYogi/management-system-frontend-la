@@ -1,13 +1,52 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../../services/api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import type { DeviceStatRow, VSSAlertHistory, VSSDelayEvent, VSSDeviceLive, VSSTrafficStats} from '../../types/vss';
-import { REASON_OPTIONS, REASON_STYLE, inputStyle, clearBtnStyle, btnOutline, btnPrimary, thStyle, tdStyle } from '../../types/vss';
+import type { DeviceStatRow, VSSAlertHistory, VSSDelayEvent, VSSDeviceLive, VSSTrafficStats, VSSTrafficDetail, VSSMinuteTraffic } from '../../types/vss';
+import { REASON_OPTIONS, REASON_STYLE, inputStyle, clearBtnStyle, btnOutline, btnPrimary, thStyle, tdStyle, TRAFFIC_COLORS } from '../../types/vss';
 
 const SIDEBAR_W = 240;
 
 type Tab = 'live' | 'history' | 'stats';
-type StatsView = 'summary' | 'percent' | 'devices';
+type StatsView = 'summary' | 'traffic' | 'devices';
+type TrafficRange =
+  | '15m'
+  | '1h'
+  | '3h'
+  | '6h'
+  | '12h'
+  | '24h'
+  | 'custom';
+
+function filterTrafficSeries(
+  series: VSSMinuteTraffic[],
+  range: TrafficRange,
+  fromStr: string,
+  toStr: string
+): VSSMinuteTraffic[] {
+  if (!series?.length) return [];
+
+  const n = series.length;
+
+  if (range === 'custom' && fromStr && toStr) {
+    const fromT = fromStr.slice(11, 16);
+    const toT = toStr.slice(11, 16);
+    if (fromT && toT) {
+      return series.filter((p) => p.minute >= fromT && p.minute <= toT);
+    }
+    return series;
+  }
+
+  const keep =
+    range === '15m' ? 15 :
+    range === '1h' ? 60 :
+    range === '3h' ? 180 :
+    range === '6h' ? 360 :
+    range === '12h' ? 720 :
+    range === '24h' ? 1440 :
+    60;
+
+  return series.slice(Math.max(0, n - keep));
+}
 
 function todayStr() {
   const d = new Date();
@@ -65,10 +104,15 @@ function formatReportTime(ms?: number) {
 }
 
 function formatDelaySec(sec?: number) {
-    if (sec == null || sec < 0 || Number.isNaN(sec)) return '-';
-    const s = Math.floor(sec);
-    if (s < 60) return `${s}s`;
+  if (sec == null || Number.isNaN(sec)) return '-';
 
+  const neg = sec < 0;
+  const s = Math.abs(Math.floor(sec));
+
+  let out: string;
+  if (s < 60) {
+    out = `${s}s`;
+  } else {
     const days = Math.floor(s / 86400);
     const hours = Math.floor((s % 86400) / 3600);
     const mins = Math.floor((s % 3600) / 60);
@@ -79,7 +123,10 @@ function formatDelaySec(sec?: number) {
     if (hours > 0) parts.push(`${hours}h`);
     if (mins > 0) parts.push(`${mins}m`);
     if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
-    return parts.join(' ');
+    out = parts.join(' ');
+  }
+
+  return neg ? `-${out}` : out;
 }
 
 function parseListResponse(res: any): { data: any[]; total: number } {
@@ -137,8 +184,256 @@ function groupHistoryByDay(rows: VSSAlertHistory[]) {
         }));
 }
 
+function TrafficPerMinuteChart({
+  series,
+  current,
+  actions,
+}: {
+  series: VSSMinuteTraffic[];
+  current?: VSSMinuteTraffic;
+  actions: string[];
+}) {
+  const points = useMemo(() => {
+    const pts = [...(series || [])];
+    if (current?.minute) pts.push(current);
+    return pts;
+  }, [series, current]);
+
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const w = 720;
+  const h = 220;
+  const pad = { t: 20, r: 16, b: 32, l: 44 };
+  const innerW = w - pad.l - pad.r;
+  const innerH = h - pad.t - pad.b;
+
+  let maxY = 1;
+  for (const p of points) {
+    for (const a of actions) {
+      maxY = Math.max(maxY, p.counts?.[a] || 0);
+    }
+    maxY = Math.max(maxY, p.total || 0);
+  }
+
+  const x = (i: number) =>
+    pad.l + (points.length <= 1 ? innerW / 2 : (i / (points.length - 1)) * innerW);
+  const y = (v: number) => pad.t + innerH - (v / maxY) * innerH;
+
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    if (points.length === 0) return;
+    const svg = e.currentTarget;
+    const rect = svg.getBoundingClientRect();
+    const mx = ((e.clientX - rect.left) / rect.width) * w;
+    let best = 0;
+    let bestDist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      const dist = Math.abs(x(i) - mx);
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = i;
+      }
+    }
+    if (mx < pad.l - 8 || mx > w - pad.r + 8) {
+      setHoverIdx(null);
+      return;
+    }
+    setHoverIdx(best);
+  };
+
+  if (points.length === 0) {
+    return (
+      <div style={{ color: '#94a3b8', fontSize: 13, padding: 24, textAlign: 'center' }}>
+        Menunggu traffic menit pertama…
+      </div>
+    );
+  }
+
+  const tip = hoverIdx != null ? points[hoverIdx] : null;
+  const tipX = tip ? x(hoverIdx!) : 0;
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <svg
+        width="100%"
+        viewBox={`0 0 ${w} ${h}`}
+        style={{ maxHeight: 240, cursor: 'crosshair' }}
+        onMouseMove={onMove}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+          const yy = pad.t + innerH * (1 - t);
+          return (
+            <line
+              key={t}
+              x1={pad.l}
+              x2={w - pad.r}
+              y1={yy}
+              y2={yy}
+              stroke="#e2e8f0"
+              strokeWidth={1}
+            />
+          );
+        })}
+
+        {actions.map((action) => {
+          const d = points
+            .map((p, i) => {
+              const v = p.counts?.[action] || 0;
+              return `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(v)}`;
+            })
+            .join(' ');
+          return (
+            <path
+              key={action}
+              d={d}
+              fill="none"
+              stroke={TRAFFIC_COLORS[action] || '#64748b'}
+              strokeWidth={2}
+            />
+          );
+        })}
+
+        {tip && hoverIdx != null && (
+          <g>
+            <line
+              x1={tipX}
+              x2={tipX}
+              y1={pad.t}
+              y2={pad.t + innerH}
+              stroke="#94a3b8"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+            />
+            {actions.map((a) => {
+              const v = tip.counts?.[a] || 0;
+              if (v <= 0 && actions.length > 1) return null;
+              return (
+                <circle
+                  key={a}
+                  cx={tipX}
+                  cy={y(v)}
+                  r={4}
+                  fill={TRAFFIC_COLORS[a] || '#64748b'}
+                  stroke="#fff"
+                  strokeWidth={1.5}
+                />
+              );
+            })}
+          </g>
+        )}
+
+        {points.map((p, i) => {
+          if (i !== 0 && i !== points.length - 1 && i % Math.ceil(points.length / 8) !== 0) {
+            return null;
+          }
+          return (
+            <text
+              key={p.minute + i}
+              x={x(i)}
+              y={h - 10}
+              textAnchor="middle"
+              fontSize={9}
+              fill="#94a3b8"
+            >
+              {p.minute}
+            </text>
+          );
+        })}
+        <text x={pad.l} y={14} fontSize={10} fill="#94a3b8">
+          max {maxY.toLocaleString()}/menit
+        </text>
+      </svg>
+
+      {tip && hoverIdx != null && (
+        <div
+          style={{
+            position: 'absolute',
+            left: `clamp(8px, ${(tipX / w) * 100}% , calc(100% - 180px))`,
+            top: 28,
+            transform: 'translateX(-50%)',
+            background: '#1e293b',
+            color: '#f8fafc',
+            borderRadius: 8,
+            padding: '8px 12px',
+            fontSize: 12,
+            boxShadow: '0 4px 12px rgba(0,0,0,.2)',
+            pointerEvents: 'none',
+            zIndex: 5,
+            minWidth: 140,
+          }}
+        >
+          <div style={{ fontWeight: 600, marginBottom: 6, borderBottom: '1px solid #334155', paddingBottom: 4 }}>
+            {tip.minute}
+          </div>
+          {actions.map((a) => {
+            const v = tip.counts?.[a] || 0;
+            return (
+              <div
+                key={a}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  marginBottom: 3,
+                }}
+              >
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 2,
+                    background: TRAFFIC_COLORS[a] || '#64748b',
+                    flexShrink: 0,
+                  }}
+                />
+                <span style={{ flex: 1, color: '#cbd5e1' }}>Action {a}</span>
+                <span style={{ fontWeight: 700 }}>{v.toLocaleString()}</span>
+              </div>
+            );
+          })}
+          <div
+            style={{
+              marginTop: 4,
+              paddingTop: 4,
+              borderTop: '1px solid #334155',
+              display: 'flex',
+              justifyContent: 'space-between',
+              color: '#94a3b8',
+            }}
+          >
+            <span>Total</span>
+            <span style={{ fontWeight: 700, color: '#f8fafc' }}>
+              {(tip.total || 0).toLocaleString()}
+            </span>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: 12 }}>
+        {actions.map((a) => (
+          <span key={a} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span
+              style={{
+                width: 10,
+                height: 3,
+                borderRadius: 2,
+                background: TRAFFIC_COLORS[a] || '#64748b',
+              }}
+            />
+            Action {a}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const VSSMonitor = () => {
   const [tab, setTab] = useState<Tab>('history');
+
+  const [trafficRange, setTrafficRange] = useState<TrafficRange>('1h');
+  const [trafficFrom, setTrafficFrom] = useState('');
+  const [trafficTo, setTrafficTo] = useState('');
 
   const [liveDate, setLiveDate] = useState(todayStr());
   const [liveReason, setLiveReason] = useState('');
@@ -146,6 +441,8 @@ const VSSMonitor = () => {
   const [liveDevice, setLiveDevice] = useState('');
   const [liveAction, setLiveAction] = useState('');
   const [liveStatus, setLiveStatus] = useState('');
+  const [trafficDetail, setTrafficDetail] = useState<VSSTrafficDetail | null>(null);
+  const [trafficLoading, setTrafficLoading] = useState(false);
   const [livePage, setLivePage] = useState(1);
   const [liveRows, setLiveRows] = useState<VSSDeviceLive[]>([]);
   const [liveTotal, setLiveTotal] = useState(0);
@@ -164,6 +461,7 @@ const VSSMonitor = () => {
   const [statsRows, setStatsRows] = useState<VSSAlertHistory[]>([]);
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsView, setStatsView] = useState<StatsView>('summary');
+  
 
   const perPage = 15;
 
@@ -218,6 +516,29 @@ const VSSMonitor = () => {
       setHistLoading(false);
     }
   }, [yearMonth, histReason, histDevice, histPage]);
+
+  const filteredTrafficSeries = useMemo(() => {
+    if (!trafficDetail?.series) return [];
+    return filterTrafficSeries(
+      trafficDetail.series,
+      trafficRange,
+      trafficFrom,
+      trafficTo
+    );
+  }, [trafficDetail, trafficRange, trafficFrom, trafficTo]);
+
+  const loadTraffic = useCallback(async () => {
+    setTrafficLoading(true);
+    try {
+      const res = await api.get('/vss/traffic');
+      const body = res.data?.data ?? res.data;
+      setTrafficDetail(body as VSSTrafficDetail);
+    } catch {
+      setTrafficDetail(null);
+    } finally {
+      setTrafficLoading(false);
+    }
+  }, []);
 
   const filteredLiveRows = useMemo(() => {
     if (!liveDate) return liveRows;
@@ -278,11 +599,12 @@ const VSSMonitor = () => {
     return () => clearInterval(id);
     }, [tab, loadLiveSoft]);
 
-    // useEffect(() => {
-    // if (tab !== 'live') return;
-    // const id = setInterval(() => setLiveTick((t) => t + 1), 1_000);
-    // return () => clearInterval(id);
-    // }, [tab]);
+    useEffect(() => {
+      if (tab !== 'stats') return;
+      loadTraffic();
+      const id = setInterval(loadTraffic, 5_000);
+      return () => clearInterval(id);
+    }, [tab, loadTraffic]);
 
   useEffect(() => {
     setLivePage(1);
@@ -344,7 +666,10 @@ const VSSMonitor = () => {
   const refresh = () => {
     if (tab === 'live') loadLive();
     else if (tab === 'history') loadHistory();
-    else loadStats();
+    else {
+      loadStats();
+      loadTraffic();
+    }
   };
 
   const subtitle =
@@ -636,7 +961,7 @@ const VSSMonitor = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['NAME', 'DEVICE ID', 'STATUS', 'DELAY', 'DTU', 'REPORT TIME', 'LAST SEEN', 'ACTION', 'IS LATER'].map(
+                        {['NAME', 'DEVICE ID', 'DELAY', 'DTU', 'REPORT TIME', 'LAST SEEN', 'ACTION'].map(
                           (h) => (
                             <th key={h} style={thStyle}>
                               {h}
@@ -669,7 +994,7 @@ const VSSMonitor = () => {
                                 <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
                                 {r.device_id}
                                 </td>
-                                <td style={tdStyle}>
+                                {/* <td style={tdStyle}>
                                 <span
                                     style={{
                                     padding: '3px 10px',
@@ -682,7 +1007,7 @@ const VSSMonitor = () => {
                                 >
                                     {r.status || '—'}
                                 </span>
-                                </td>
+                                </td> */}
                                 <td
                                     style={{ ...tdStyle, fontWeight: 600 }}
                                     // title={`${liveDelay(r)}s`}
@@ -696,7 +1021,7 @@ const VSSMonitor = () => {
                                 </td>
                                 <td style={tdStyle}>{formatDateTime(r.last_seen)}</td>
                                 <td style={tdStyle}>{r.action || '—'}</td>
-                                <td style={tdStyle}>{r.is_later ? 'Yes' : 'No'}</td>
+                                {/* <td style={tdStyle}>{r.is_later ? 'Yes' : 'No'}</td> */}
                             </tr>
                             ))
                         )}
@@ -792,51 +1117,50 @@ const VSSMonitor = () => {
             ))}
 
           {tab === 'stats' &&
-  (statsLoading ? (
-    <LoadingSpinner message="Menghitung statistik..." />
-  ) : (
-    <div style={{ padding: 16 }}>
-      {/* Switch tampilan */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 8,
-          marginBottom: 16,
-          flexWrap: 'wrap',
-        }}
-      >
-        {(
-          [
-            { id: 'summary' as StatsView, label: 'Ringkasan', icon: 'bi-speedometer2' },
-            { id: 'percent' as StatsView, label: 'Persentase', icon: 'bi-pie-chart' },
-            { id: 'devices' as StatsView, label: 'Top device', icon: 'bi-truck' },
-          ] as const
-        ).map((v) => (
-          <button
-            key={v.id}
-            type="button"
-            onClick={() => setStatsView(v.id)}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '8px 14px',
-              borderRadius: 9,
-              border: `1px solid ${statsView === v.id ? '#6366f1' : '#e2e8f0'}`,
-              background: statsView === v.id ? '#eef2ff' : '#fff',
-              color: statsView === v.id ? '#4338ca' : '#475569',
-              fontWeight: statsView === v.id ? 600 : 500,
-              fontSize: 13,
-              cursor: 'pointer',
-            }}
-          >
-            <i className={`bi ${v.icon}`} />
-            {v.label}
-          </button>
-        ))}
-      </div>
+            (statsLoading ? (
+              <LoadingSpinner message="Menghitung statistik..." />
+            ) : (
+              <div style={{ padding: 16 }}>
+                {/* Switch tampilan */}
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 8,
+                    marginBottom: 16,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  {(
+                    [
+                      { id: 'summary' as StatsView, label: 'Ringkasan', icon: 'bi-speedometer2' },
+                      { id: 'traffic' as StatsView, label: 'Traffic / menit', icon: 'bi-pie-chart' },
+                      { id: 'devices' as StatsView, label: 'Top device', icon: 'bi-truck' },
+                    ] as const
+                  ).map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setStatsView(v.id)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '8px 14px',
+                        borderRadius: 9,
+                        border: `1px solid ${statsView === v.id ? '#6366f1' : '#e2e8f0'}`,
+                        background: statsView === v.id ? '#eef2ff' : '#fff',
+                        color: statsView === v.id ? '#4338ca' : '#475569',
+                        fontWeight: statsView === v.id ? 600 : 500,
+                        fontSize: 13,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <i className={`bi ${v.icon}`} />
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
 
-      {/* ===== RINGKASAN (mirip Fleet Delay Summary) ===== */}
         {statsView === 'summary' && (
             <>
             <div
@@ -993,94 +1317,166 @@ const VSSMonitor = () => {
             </>
         )}
 
-        {statsView === 'percent' && (
-            <div
-            style={{
-                display: 'grid',
-                gridTemplateColumns: 'minmax(220px, 280px) 1fr',
-                gap: 16,
-                alignItems: 'start',
-            }}
-            >
-            <div
-                style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: 12,
-                padding: 16,
-                background: '#fff',
-                textAlign: 'center',
-                }}
-            >
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 12, color: '#1e293b' }}>
-                Komposisi reason
+        {statsView === 'traffic' && (
+          <div>
+            {trafficLoading && !trafficDetail ? (
+              <LoadingSpinner />
+            ) : !trafficDetail ? (
+              <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center' }}>
+                Belum ada data traffic
+              </div>
+            ) : (
+              <>
+                {/* Ringkasan total */}
+                <div
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 12,
+                    padding: 16,
+                    marginBottom: 16,
+                    background: '#fff',
+                    fontSize: 13,
+                    color: '#334155',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Traffic per Action</div>
+                  <div>
+                    Total sejak server nyala:{' '}
+                    {Object.entries(trafficDetail.totals || {})
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([k, v]) => `${k}: ${v.toLocaleString()}`)
+                      .join(' | ') || '—'}
+                  </div>
+                  <div>
+                    Total traffic keseluruhan:{' '}
+                    <strong>{(trafficDetail.total_messages || 0).toLocaleString()}</strong>
+                  </div>
+                  <div>
+                    Traffic menit berjalan ({trafficDetail.current_minute?.minute || '—'}):{' '}
+                    <strong>{(trafficDetail.current_minute?.total || 0).toLocaleString()}</strong>
+                    {' total ('}
+                    {(trafficDetail.tracked_actions || ['80003', '80004', '80005', '80007', '80030'])
+                      .map(
+                        (a) =>
+                          `${a}: ${(trafficDetail.current_minute?.counts?.[a] || 0).toLocaleString()}`
+                      )
+                      .join(', ')}
+                    {')'}
+                  </div>
                 </div>
-                {statsRows.length === 0 ? (
-                <div style={{ color: '#94a3b8', fontSize: 13 }}>Tidak ada data</div>
-                ) : (
-                <ReasonPieChart totals={reasonTotals} total={statsRows.length} />
-                )}
-            </div>
 
-            <div
-                style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: 12,
-                padding: 16,
-                background: '#fff',
-                }}
-            >
-                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14, color: '#1e293b' }}>
-                Persentase per reason
+                {/* Time range */}
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    alignItems: 'center',
+                    marginBottom: 12,
+                  }}
+                >
+                  {(
+                    [
+                      { id: '15m' as TrafficRange, label: 'Last 15m' },
+                      { id: '1h' as TrafficRange, label: 'Last 1h' },
+                      { id: '3h' as TrafficRange, label: 'Last 3h' },
+                      { id: '6h' as TrafficRange, label: 'Last 6h' },
+                      { id: '12h' as TrafficRange, label: 'Last 12h' },
+                      { id: '24h' as TrafficRange, label: 'Last 24h' },
+                      { id: 'custom' as TrafficRange, label: 'Custom' },
+                    ] as const
+                  ).map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setTrafficRange(r.id)}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: 7,
+                        border: `1px solid ${trafficRange === r.id ? '#6366f1' : '#e2e8f0'}`,
+                        background: trafficRange === r.id ? '#6366f1' : '#fff',
+                        color: trafficRange === r.id ? '#fff' : '#374151',
+                        fontSize: 12,
+                        fontWeight: trafficRange === r.id ? 600 : 500,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
                 </div>
-                {reasonTotals.length === 0 ? (
-                <div style={{ color: '#94a3b8', fontSize: 13 }}>Tidak ada data</div>
-                ) : (
-                reasonTotals.map(([reason, n]) => {
-                    const pct = statsRows.length ? Math.round((n / statsRows.length) * 1000) / 10 : 0;
-                    const style = REASON_STYLE[reason] || {
-                    bg: '#f1f5f9',
-                    color: '#475569',
-                    label: reason,
-                    };
-                    return (
-                    <div key={reason} style={{ marginBottom: 14 }}>
-                        <div
-                        style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            marginBottom: 6,
-                            fontSize: 13,
-                        }}
-                        >
-                        <ReasonBadge reason={reason} />
-                        <span style={{ fontWeight: 700, color: '#1e293b' }}>
-                            {pct}% <span style={{ color: '#94a3b8', fontWeight: 500 }}>({n})</span>
-                        </span>
-                        </div>
-                        <div
-                        style={{
-                            height: 10,
-                            borderRadius: 99,
-                            background: '#f1f5f9',
-                            overflow: 'hidden',
-                        }}
-                        >
-                        <div
-                            style={{
-                            width: `${pct}%`,
-                            height: '100%',
-                            borderRadius: 99,
-                            background: style.color,
-                            transition: 'width .3s ease',
-                            }}
-                        />
-                        </div>
-                    </div>
-                    );
-                })
+
+                {trafficRange === 'custom' && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 10,
+                      alignItems: 'center',
+                      marginBottom: 12,
+                      fontSize: 13,
+                    }}
+                  >
+                    <label style={{ color: '#64748b' }}>
+                      From{' '}
+                      <input
+                        type="datetime-local"
+                        value={trafficFrom}
+                        onChange={(e) => setTrafficFrom(e.target.value)}
+                        style={{ ...inputStyle, width: 'auto', marginLeft: 6 }}
+                      />
+                    </label>
+                    <label style={{ color: '#64748b' }}>
+                      To{' '}
+                      <input
+                        type="datetime-local"
+                        value={trafficTo}
+                        onChange={(e) => setTrafficTo(e.target.value)}
+                        style={{ ...inputStyle, width: 'auto', marginLeft: 6 }}
+                      />
+                    </label>
+                  </div>
                 )}
-            </div>
-            </div>
+
+                {/* Satu grafik saja */}
+                <div
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 12,
+                    padding: 16,
+                    background: '#fff',
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+                    Trafik per menit (realtime)
+                  </div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                    Hover titik/menit untuk detail · update tiap 5 detik · data tersedia:{' '}
+                    {(trafficDetail.series || []).length} menit
+                    {(trafficDetail.series || []).length < 60
+                      ? ' (backend ~60 menit terakhir)'
+                      : ''}
+                  </div>
+                  <TrafficPerMinuteChart
+                    series={filteredTrafficSeries}
+                    current={
+                      trafficRange === 'custom' ? undefined : trafficDetail.current_minute
+                    }
+                    actions={
+                      trafficDetail.tracked_actions || [
+                        '80003',
+                        '80004',
+                        '80005',
+                        '80007',
+                        '80030',
+                      ]
+                    }
+                  />
+                </div>
+              </>
+            )}
+          </div>
         )}
 
         {statsView === 'devices' && (
