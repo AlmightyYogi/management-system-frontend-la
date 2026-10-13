@@ -125,6 +125,56 @@ function formatAgeSec(value?: string): string {
   return formatDelaySec(sec);
 }
 
+type SortDir = 'asc' | 'desc';
+type SortState = { key: string; dir: SortDir };
+
+function toggleSort(current: SortState, key: string): SortState {
+  if (current.key === key) {
+    return { key, dir: current.dir === 'asc' ? 'desc' : 'asc' };
+  }
+  return { key, dir: 'asc' };
+}
+
+function SortableTh({
+  label,
+  sortKey,
+  sort,
+  onSort,
+}: {
+  label: string;
+  sortKey: string;
+  sort: SortState;
+  onSort: (key: string) => void;
+}) {
+  const active = sort.key === sortKey;
+  return (
+    <th
+      style={{
+        ...thStyle,
+        cursor: 'pointer',
+        userSelect: 'none',
+        whiteSpace: 'nowrap',
+      }}
+      onClick={() => onSort(sortKey)}
+      title={`Urutkan ${label}`}
+    >
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {label}
+        <span
+          style={{
+            fontSize: 10,
+            color: active ? '#6366f1' : '#cbd5e1',
+            fontWeight: 700,
+            minWidth: 12,
+          }}
+        >
+          {active ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
+      </span>
+    </th>
+  );
+}
+
 function parseListResponse(res: any): { data: any[]; total: number } {
   const payload = res.data?.data ?? res.data;
   const list = Array.isArray(payload)
@@ -500,6 +550,9 @@ const VSSMonitor = () => {
   const [statsLoading, setStatsLoading] = useState(false);
   const [statsView, setStatsView] = useState<StatsView>('summary');
   
+  const [liveSort, setLiveSort] = useState<SortState>({ key: 'delay_sec', dir: 'asc' });
+  const [histSort, setHistSort] = useState<SortState>({ key: 'detected_at', dir: 'desc' });
+  
 
   const perPage = 15;
 
@@ -513,6 +566,8 @@ const VSSMonitor = () => {
         if (onlyIssue) params.append('only_issue', '1');
         params.append('page', String(livePage));
         params.append('per_page', String(perPage));
+        params.append('sort_by', liveSort.key);
+        params.append('sort_dir', liveSort.dir);
 
         const res = await api.get(`/vss/live?${params.toString()}`);
         const body = res.data?.data ?? res.data;
@@ -528,7 +583,7 @@ const VSSMonitor = () => {
     } finally {
         if (showSpinner) setLiveLoading(false);
     }
-    }, [liveDevice, liveAction, liveStatus, onlyIssue, livePage]);
+    }, [liveDevice, liveAction, liveStatus, onlyIssue, livePage, liveSort]);
 
   const loadLive = useCallback(() => fetchLive(true), [fetchLive]);
   const loadLiveSoft = useCallback(() => fetchLive(false), [fetchLive]);
@@ -542,6 +597,8 @@ const VSSMonitor = () => {
       if (histDevice) params.append('device_name', histDevice);
       params.append('page', String(histPage));
       params.append('per_page', String(perPage));
+      params.append('sort_by', histSort.key);
+      params.append('sort_dir', histSort.dir);
 
       const res = await api.get(`/vss/history?${params.toString()}`);
       const { data, total } = parseListResponse(res);
@@ -553,7 +610,7 @@ const VSSMonitor = () => {
     } finally {
       setHistLoading(false);
     }
-  }, [yearMonth, histReason, histDevice, histPage]);
+  }, [yearMonth, histReason, histDevice, histPage, histSort]);
 
   const filteredTrafficSeries = useMemo(() => {
     if (!trafficDetail?.series) return [];
@@ -584,7 +641,6 @@ const VSSMonitor = () => {
         if (!r.last_seen) return false;
         const d = new Date(r.last_seen);
         if (Number.isNaN(d.getTime())) return false;
-        // bandingkan YYYY-MM-DD lokal
         const y = d.getFullYear();
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
@@ -636,6 +692,14 @@ const VSSMonitor = () => {
     }, 3_000);
     return () => clearInterval(id);
     }, [tab, loadLiveSoft]);
+
+  useEffect(() => {
+    setLivePage(1);
+  }, [liveSort.key, liveSort.dir]);
+
+  useEffect(() => {
+    setHistPage(1);
+  }, [histSort.key, histSort.dir]);
 
     useEffect(() => {
       if (tab !== 'stats') return;
@@ -739,6 +803,22 @@ const VSSMonitor = () => {
       loadTraffic();
     }
   };
+
+  const onLiveSort = (key: string) => {
+    setLiveSort((prev) => toggleSort(prev, key));
+  };
+
+  const onHistSort = (key: string) => {
+    setHistSort((prev) => toggleSort(prev, key));
+  };
+
+  useEffect(() => {
+    setLivePage(1);
+  }, [liveSort.key, liveSort.dir]);
+
+  useEffect(() => {
+    setHistPage(1);
+  }, [histSort.key, histSort.dir]);
 
   const subtitle =
     tab === 'live'
@@ -1033,13 +1113,13 @@ const VSSMonitor = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['NAME', 'DEVICE ID', 'DELAY', 'LAST SEEN', 'DEVICE TIME', 'SENT TO MIDDLEWARE AT', 'ACTION'].map(
-                          (h) => (
-                            <th key={h} style={thStyle}>
-                              {h}
-                            </th>
-                          )
-                        )}
+                        <SortableTh label="NAME" sortKey="device_name" sort={liveSort} onSort={onLiveSort} />
+                        <SortableTh label="DEVICE ID" sortKey="device_id" sort={liveSort} onSort={onLiveSort} />
+                        <SortableTh label="DELAY" sortKey="delay_sec" sort={liveSort} onSort={onLiveSort} />
+                        <SortableTh label="LAST SEEN" sortKey="last_seen" sort={liveSort} onSort={onLiveSort} />
+                        <SortableTh label="DEVICE TIME" sortKey="dtu" sort={liveSort} onSort={onLiveSort} />
+                        <SortableTh label="SENT TO MIDDLEWARE AT" sortKey="report_time" sort={liveSort} onSort={onLiveSort} />
+                        <SortableTh label="ACTION" sortKey="action" sort={liveSort} onSort={onLiveSort} />
                       </tr>
                     </thead>
                     <tbody>
@@ -1133,13 +1213,12 @@ const VSSMonitor = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['NAME', 'DEVICE ID', 'DELAY', 'LAST SEEN', 'DEVICE TIME', 'SENT TO MIDDLEWARE AT'].map(
-                          (h) => (
-                            <th key={h} style={thStyle}>
-                              {h}
-                            </th>
-                          )
-                        )}
+                        <SortableTh label="NAME" sortKey="device_name" sort={histSort} onSort={onHistSort} />
+                        <SortableTh label="DEVICE ID" sortKey="device_id" sort={histSort} onSort={onHistSort} />
+                        <SortableTh label="DELAY" sortKey="delay_sec" sort={histSort} onSort={onHistSort} />
+                        <SortableTh label="LAST SEEN" sortKey="detected_at" sort={histSort} onSort={onHistSort} />
+                        <SortableTh label="DEVICE TIME" sortKey="dtu" sort={histSort} onSort={onHistSort} />
+                        <SortableTh label="SENT TO MIDDLEWARE AT" sortKey="report_time" sort={histSort} onSort={onHistSort} />
                       </tr>
                     </thead>
                     <tbody>

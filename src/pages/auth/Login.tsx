@@ -30,6 +30,9 @@ const Login = () => {
     try {
       await login({ email, password });
       const u = useAuthStore.getState().user;
+      const guest =
+        String((u as any)?.role_name ?? '').toLowerCase() === 'guest' ||
+        Number((u as any)?.role_id) === 4;
       const roleId = (u as any)?.role_id;
       const roleName = String((u as any)?.role_name ?? '').toLowerCase();
       const isGuest = roleName === 'guest' || roleId === 4;
