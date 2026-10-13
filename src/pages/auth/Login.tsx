@@ -29,6 +29,10 @@ const Login = () => {
 
     try {
       await login({ email, password });
+      const u = useAuthStore.getState().user;
+      const roleId = (u as any)?.role_id;
+      const roleName = String((u as any)?.role_name ?? '').toLowerCase();
+      const isGuest = roleName === 'guest' || roleId === 4;
 
       Swal.fire({
         icon: 'success',
@@ -37,8 +41,8 @@ const Login = () => {
         timer: 1500,
         showConfirmButton: false,
         willClose: () => {
-          navigate('/dashboard');
-        }
+          navigate(isGuest ? '/vss/monitor' : '/dashboard');
+        },
       });
     } catch (err: any) {
       Swal.fire({

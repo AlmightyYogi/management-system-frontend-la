@@ -20,9 +20,11 @@ export interface Role {
 }
 
 export const ROLE_META: Record<string, { icon: string; desc: string }> = {
-  admin:  { icon: '🛡️', desc: 'Akses penuh ke semua fitur, termasuk manajemen akun dan konfigurasi sistem.' },
+  admin:  { icon: '🛡️',  desc: 'Akses penuh ke semua fitur, termasuk manajemen akun dan konfigurasi sistem.' },
   viewer: { icon: '👁️',  desc: 'Hanya dapat melihat data. Tidak dapat membuat atau mengedit ticket.' },
   user:   { icon: '👤',  desc: 'Dapat membuat dan melihat ticket. Tidak dapat melakukan penugasan.' },
+  guest:  { icon: '🎫',  desc: 'Hanya akses VSS Monitoring. Tidak bisa membuka tickets, accounts, atau menu lain.',
+},
 } as const;
 
 export const AVATAR_BG = '#1e40af' as const;

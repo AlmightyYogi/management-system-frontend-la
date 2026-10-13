@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import api from '../../services/api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import type { DeviceStatRow, VSSAlertHistory, VSSDelayEvent, VSSDeviceLive, VSSTrafficStats, VSSTrafficDetail, VSSMinuteTraffic } from '../../types/vss';
-import { REASON_OPTIONS, REASON_STYLE, inputStyle, clearBtnStyle, btnOutline, btnPrimary, thStyle, tdStyle, TRAFFIC_COLORS } from '../../types/vss';
+import type { DeviceStatRow, VSSAlertHistory, VSSDelayEvent, VSSDeviceLive, VSSTrafficStats, VSSTrafficDetail, VSSMinuteTraffic, DelayCategory } from '../../types/vss';
+import { REASON_OPTIONS, REASON_STYLE, inputStyle, clearBtnStyle, btnOutline, btnPrimary, thStyle, tdStyle, TRAFFIC_COLORS, DELAY_CATEGORY_LABEL, DELAY_CATEGORY_COLOR } from '../../types/vss';
 
 const SIDEBAR_W = 240;
 
@@ -60,23 +60,6 @@ function currentYearMonth() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}`;
 }
 
-// function liveDelay(r: VSSDeviceLive): number {
-//   if (r.dtu) {
-//     const t = new Date(r.dtu.replace(' ', 'T') + '+07:00').getTime();
-//     if (!Number.isNaN(t)) {
-//       return Math.max(0, Math.floor((Date.now() - t) / 1000));
-//     }
-//   }
-//   if (r.report_time && r.report_time > 0) {
-//     const ms =
-//       r.report_time < 1_000_000_000_000
-//         ? r.report_time * 1000
-//         : r.report_time;
-//     return Math.max(0, Math.floor((Date.now() - ms) / 1000));
-//   }
-//   return r.delay_sec ?? 0;
-// }
-
 function formatDateTime(value?: string) {
   if (!value) return '—';
   const d = new Date(value);
@@ -127,6 +110,19 @@ function formatDelaySec(sec?: number) {
   }
 
   return neg ? `-${out}` : out;
+}
+
+function ageSecFromISO(value?: string): number | undefined {
+  if (!value) return undefined;
+  const t = new Date(value).getTime();
+  if (Number.isNaN(t)) return undefined;
+  return Math.max(0, Math.floor((Date.now() - t) / 1000));
+}
+
+function formatAgeSec(value?: string): string {
+  const sec = ageSecFromISO(value);
+  if (sec == null) return '—';
+  return formatDelaySec(sec);
 }
 
 function parseListResponse(res: any): { data: any[]; total: number } {
@@ -182,6 +178,49 @@ function groupHistoryByDay(rows: VSSAlertHistory[]) {
             avgDelay: v.count ? Math.round(v.sumDelay / v.count) : 0,
             maxDelay: v.maxDelay,
         }));
+}
+
+function categorizeDelay(sec: number): DelayCategory {
+  if (sec <= 5) return '0-5s';
+  if (sec <= 60) return '5s-1m';
+  if (sec <= 300) return '1m-5m';
+  return '>5m';
+}
+
+type DeviceDayStat = {
+  deviceId: string;
+  deviceName: string;
+  days: Record<string, number>;
+  totalDays: number;
+  maxPerDay: number;
+};
+
+function buildDeviceDayStats(rows: VSSAlertHistory[]): DeviceDayStat[] {
+  const map = new Map<string, DeviceDayStat>();
+  for (const r of rows) {
+    if (!r.delay_sec || r.delay_sec <= 0) continue;
+    const d = r.detected_at ? new Date(r.detected_at) : null;
+    if (!d || isNaN(d.getTime())) continue;
+    const dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    let item = map.get(r.device_id);
+    if (!item) {
+      item = { deviceId: r.device_id, deviceName: r.device_name || r.device_id, days: {}, totalDays: 0, maxPerDay: 0 };
+      map.set(r.device_id, item);
+    }
+    if (r.device_name) item.deviceName = r.device_name;
+    item.days[dateKey] = (item.days[dateKey] || 0) + 1;
+  }
+  for (const item of map.values()) {
+    const counts = Object.values(item.days);
+    item.totalDays = counts.length;
+    item.maxPerDay = counts.length ? Math.max(...counts) : 0;
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const aTotal = Object.values(a.days).reduce((s, x) => s + x, 0);
+    const bTotal = Object.values(b.days).reduce((s, x) => s + x, 0);
+    return bTotal - aTotal;
+  });
 }
 
 function TrafficPerMinuteChart({
@@ -437,7 +476,6 @@ const VSSMonitor = () => {
 
   const [liveDate, setLiveDate] = useState(todayStr());
   const [liveReason, setLiveReason] = useState('');
-  // const [liveTick, setLiveTick] = useState(0);
   const [liveDevice, setLiveDevice] = useState('');
   const [liveAction, setLiveAction] = useState('');
   const [liveStatus, setLiveStatus] = useState('');
@@ -450,7 +488,7 @@ const VSSMonitor = () => {
   const [onlyIssue, setOnlyIssue] = useState(false);
   const [liveLoading, setLiveLoading] = useState(false);
 
-  const [yearMonth, setYearMonth] = useState(currentYearMonth());
+  const [yearMonth, setYearMonth] = useState('');
   const [histReason, setHistReason] = useState('');
   const [histDevice, setHistDevice] = useState('');
   const [histPage, setHistPage] = useState(1);
@@ -614,6 +652,25 @@ const VSSMonitor = () => {
     setHistPage(1);
   }, [yearMonth, histReason, histDevice]);
 
+  useEffect(() => {
+  if (yearMonth !== '') return;
+  api.get('/vss/history?page=1&per_page=1')
+    .then((res) => {
+      const body = res.data?.data ?? res.data;
+      const list = Array.isArray(body?.data) ? body.data : [];
+      if (list.length > 0 && list[0].detected_at) {
+        const d = new Date(list[0].detected_at);
+        if (!isNaN(d.getTime())) {
+          const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          setYearMonth(ym);
+          return;
+        }
+      }
+      setYearMonth(currentYearMonth());
+    })
+    .catch(() => setYearMonth(currentYearMonth()));
+}, []);
+
   const livePages = Math.max(1, Math.ceil(liveTotal / perPage));
   const histPages = Math.max(1, Math.ceil(histTotal / perPage));
 
@@ -635,6 +692,17 @@ const VSSMonitor = () => {
         }
         return best;
     }, [statsRows])
+
+    const delayCategoryDist = useMemo(() => {
+    const counts: Record<DelayCategory, number> = { '0-5s': 0, '5s-1m': 0, '1m-5m': 0, '>5m': 0 };
+    for (const r of statsRows) {
+      if (r.delay_sec == null) continue;
+      counts[categorizeDelay(r.delay_sec)] += 1;
+    }
+    return counts;
+  }, [statsRows]);
+
+  const deviceDayStats = useMemo(() => buildDeviceDayStats(statsRows), [statsRows]);
 
   const clearFilters = () => {
     if (tab === 'live') {
@@ -957,11 +1025,15 @@ const VSSMonitor = () => {
               <LoadingSpinner message="Memuat live status..." />
             ) : (
               <>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 8 }}>
+              <strong>Delay</strong> = selisih waktu server vs DTU saat paket terakhir ·{' '}
+              <strong>Last Seen</strong> = kapan monitor terakhir menerima pesan dari device
+            </div>
                 <div style={{ overflowX: 'auto' }}>
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['NAME', 'DEVICE ID', 'DELAY', 'DTU', 'REPORT TIME', 'LAST SEEN', 'ACTION'].map(
+                        {['NAME', 'DEVICE ID', 'DELAY', 'LAST SEEN', 'DEVICE TIME', 'SENT TO MIDDLEWARE AT', 'ACTION'].map(
                           (h) => (
                             <th key={h} style={thStyle}>
                               {h}
@@ -994,34 +1066,48 @@ const VSSMonitor = () => {
                                 <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
                                 {r.device_id}
                                 </td>
-                                {/* <td style={tdStyle}>
-                                <span
-                                    style={{
-                                    padding: '3px 10px',
-                                    borderRadius: 20,
-                                    fontSize: 11,
-                                    fontWeight: 600,
-                                    background: r.status === 'NORMAL' ? '#dcfce7' : '#fef3c7',
-                                    color: r.status === 'NORMAL' ? '#16a34a' : '#b45309',
-                                    }}
-                                >
-                                    {r.status || '—'}
-                                </span>
-                                </td> */}
                                 <td
-                                    style={{ ...tdStyle, fontWeight: 600 }}
-                                    // title={`${liveDelay(r)}s`}
-                                    >
-                                    {formatDelaySec(r.delay_sec ?? 0)}
-                                    {/* <span style={{ display: 'none' }}>{liveTick}</span> */}
+                                  style={{
+                                    ...tdStyle,
+                                    fontVariantNumeric: 'tabular-nums',
+                                    fontWeight: 600,
+                                    color:
+                                      (r.delay_sec ?? 0) >= 300
+                                        ? '#dc2626'
+                                        : (r.delay_sec ?? 0) >= 60
+                                          ? '#d97706'
+                                          : '#059669',
+                                  }}
+                                  title="Lag timestamp device (DTU) saat pesan terakhir diterima"
+                                >
+                                  {formatDelaySec(r.delay_sec)}
+                                </td>
+                                <td
+                                  style={{
+                                    ...tdStyle,
+                                    fontVariantNumeric: 'tabular-nums',
+                                    fontWeight: 600,
+                                    color: (() => {
+                                      const a = ageSecFromISO(r.last_seen) ?? 0;
+                                      if (a >= 300) return '#dc2626';
+                                      if (a >= 60) return '#d97706';
+                                      return '#059669';
+                                    })(),
+                                    whiteSpace: 'nowrap',
+                                  }}
+                                  title={
+                                    r.last_seen
+                                      ? `Terakhir terima: ${formatDateTime(r.last_seen)}`
+                                      : 'Belum ada last_seen'
+                                  }
+                                >
+                                  {formatAgeSec(r.last_seen)}
                                 </td>
                                 <td style={tdStyle}>{r.dtu || '—'}</td>
                                 <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
-                                {formatReportTime(r.report_time)}
+                                  {formatReportTime(r.report_time)}
                                 </td>
-                                <td style={tdStyle}>{formatDateTime(r.last_seen)}</td>
                                 <td style={tdStyle}>{r.action || '—'}</td>
-                                {/* <td style={tdStyle}>{r.is_later ? 'Yes' : 'No'}</td> */}
                             </tr>
                             ))
                         )}
@@ -1047,7 +1133,7 @@ const VSSMonitor = () => {
                   <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['WAKTU', 'DEVICE ID', 'NAME', 'ACTION', 'ALARM ID', 'DELAY'].map(
+                        {['NAME', 'DEVICE ID', 'DELAY', 'LAST SEEN', 'DEVICE TIME', 'SENT TO MIDDLEWARE AT'].map(
                           (h) => (
                             <th key={h} style={thStyle}>
                               {h}
@@ -1073,33 +1159,46 @@ const VSSMonitor = () => {
                                 idx % 2 === 0 ? '#fff' : '#fafafa')
                             }
                           >
-                            <td style={tdStyle}>{formatDateTime(r.detected_at)}</td>
-                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
-                              {r.device_id}
-                            </td>
                             <td style={{ ...tdStyle, fontWeight: 500, color: '#1e293b' }}>
                               {r.device_name || '—'}
                             </td>
-                            <td style={{ ...tdStyle, fontWeight: 500, color: '#1e293b' }}>
+                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
+                              {r.device_id}
+                            </td>
+                            <td
+                                  style={{
+                                    ...tdStyle,
+                                    fontVariantNumeric: 'tabular-nums',
+                                    fontWeight: 600,
+                                    color:
+                                      (r.delay_sec ?? 0) >= 300
+                                        ? '#dc2626'
+                                        : (r.delay_sec ?? 0) >= 60
+                                          ? '#d97706'
+                                          : '#059669',
+                                  }}
+                                  title="Lag timestamp device (DTU) saat pesan terakhir diterima"
+                                >
+                                  {formatDelaySec(r.delay_sec)}
+                                </td>
+                                <td
+                                style={{
+                                  ...tdStyle,
+                                  fontVariantNumeric: 'tabular-nums',
+                                  color: '#475569',
+                                  whiteSpace: 'nowrap',
+                                }}
+                                title={r.detected_at ? formatDateTime(r.detected_at) : undefined}
+                              >
+                                {formatAgeSec(r.detected_at)}
+                              </td>
+                            {/* <td style={{ ...tdStyle, fontWeight: 500, color: '#1e293b' }}>
                               {r.action || '—'}
-                            </td>
-                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 11 }}>
-                            {r.alarm_id || '—'}
-                            </td>
-                            {/* <td style={tdStyle}>
-                              <ReasonBadge reason={r.reason} />
                             </td> */}
-                            <td style={{ ...tdStyle, fontWeight: 600 }}>{r.delay_sec}s</td>
-                            {/* <td style={tdStyle}>
-                              {r.email_sent ? (
-                                <span style={{ color: '#16a34a', fontWeight: 600, fontSize: 12 }}>
-                                  Sent
-                                </span>
-                              ) : (
-                                <span style={{ color: '#94a3b8', fontSize: 12 }}>—</span>
-                              )}
+                            <td style={tdStyle}>{r.dtu || '—'}</td>
+                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
+                              {formatReportTime(r.report_time)}
                             </td>
-                            <td style={tdStyle}>{r.year_month}</td> */}
                           </tr>
                         ))
                       )}
@@ -1121,7 +1220,6 @@ const VSSMonitor = () => {
               <LoadingSpinner message="Menghitung statistik..." />
             ) : (
               <div style={{ padding: 16 }}>
-                {/* Switch tampilan */}
                 <div
                   style={{
                     display: 'flex',
@@ -1162,159 +1260,185 @@ const VSSMonitor = () => {
                 </div>
 
         {statsView === 'summary' && (
-            <>
+          <>
             <div
-                style={{
+              style={{
                 background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)',
                 border: '1px solid #e0e7ff',
                 borderRadius: 14,
                 padding: 18,
                 marginBottom: 16,
-                }}
+              }}
             >
-                <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b', marginBottom: 6 }}>
+              <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b', marginBottom: 6 }}>
                 Fleet event summary
-                </div>
-                <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
+              </div>
+              <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
                 Periode <strong>{yearMonth || '—'}</strong>
                 {' · '}
                 Total event: <strong>{statsRows.length}</strong>
                 {' · '}
                 Device terdampak: <strong>{stats.length}</strong>
                 {topReason && (
-                    <>
+                  <>
                     {' · '}Reason terbanyak:{' '}
                     <strong>
-                        {REASON_STYLE[topReason[0]]?.label || topReason[0]} ({topReason[1]})
+                      {REASON_STYLE[topReason[0]]?.label || topReason[0]} ({topReason[1]})
                     </strong>
-                    </>
+                  </>
                 )}
-                </div>
-                {maxDelayEvent && (
+              </div>
+              {maxDelayEvent && (
                 <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
-                    Delay tertinggi di history:{' '}
-                    <strong style={{ color: '#dc2626' }}>
+                  Delay tertinggi di history:{' '}
+                  <strong style={{ color: '#dc2626' }}>
                     {formatDelaySec(maxDelayEvent.delay_sec)}
-                    </strong>{' '}
-                    ({maxDelayEvent.device_name || maxDelayEvent.device_id})
+                  </strong>{' '}
+                  ({maxDelayEvent.device_name || maxDelayEvent.device_id})
                 </div>
-                )}
-                {topDevices.length > 0 && (
+              )}
+              {topDevices.length > 0 && (
                 <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
-                    Top 5 device:{' '}
-                    {topDevices
-                    .map(
-                        (d) =>
-                        `${d.device_name} (${d.total} event)`
-                    )
-                    .join(', ')}
+                  Top 5 device:{' '}
+                  {topDevices.map((d) => `${d.device_name} (${d.total} event)`).join(', ')}
                 </div>
-                )}
+              )}
             </div>
 
             <div
-                style={{
+              style={{
                 display: 'grid',
                 gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
                 gap: 12,
                 marginBottom: 16,
-                }}
+              }}
             >
-                <StatCard label="Periode" value={yearMonth || '—'} />
-                <StatCard label="Total event" value={String(statsRows.length)} />
-                <StatCard label="Device" value={String(stats.length)} />
-                <StatCard
-                label="Reason unik"
-                value={String(reasonTotals.length)}
-                />
+              <StatCard label="Periode" value={yearMonth || '—'} />
+              <StatCard label="Total event" value={String(statsRows.length)} />
+              <StatCard label="Device" value={String(stats.length)} />
+              <StatCard label="Reason unik" value={String(reasonTotals.length)} />
             </div>
 
-            {/* Mini line chart: event count per hari */}
             <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 16,
+                marginBottom: 16,
+              }}
+            >
+              <div
                 style={{
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 12,
+                  padding: 16,
+                  background: '#fff',
+                }}
+              >
+                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
+                  Distribusi Durasi Delay
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                  Kategori berdasarkan lamanya delay yang tercatat
+                </div>
+                {statsRows.length === 0 ? (
+                  <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: 24 }}>
+                    Belum ada data
+                  </div>
+                ) : (
+                  <DelayCategoryPieChart dist={delayCategoryDist} total={statsRows.filter(r => r.delay_sec != null).length} />
+                )}
+              </div>
+
+              <div
+                style={{
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 12,
+                  padding: 16,
+                  background: '#fff',
+                }}
+              >
+                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
+                  Top Device — Frekuensi Delay per Hari
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                  Heatmap hari aktif · semakin gelap semakin banyak delay dalam 1 hari
+                </div>
+                {deviceDayStats.length === 0 ? (
+                  <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: 24 }}>
+                    Belum ada data delay
+                  </div>
+                ) : (
+                  <DeviceDayHeatmap rows={deviceDayStats.slice(0, 8)} />
+                )}
+              </div>
+            </div>
+
+            <div
+              style={{
                 border: '1px solid #e2e8f0',
                 borderRadius: 12,
                 padding: 16,
                 marginBottom: 16,
                 background: '#fff',
-                }}
+              }}
             >
-                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
                 Tren event per hari
-                </div>
-                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+              </div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
                 Jumlah event history · garis biru = count, merah = max delay (detik)
-                </div>
-                {daySeries.length === 0 ? (
+              </div>
+              {daySeries.length === 0 ? (
                 <div style={{ color: '#94a3b8', fontSize: 13, padding: 24, textAlign: 'center' }}>
-                    Belum ada data di periode ini
+                  Belum ada data di periode ini
                 </div>
-                ) : (
+              ) : (
                 <DayTrendChart series={daySeries} />
-                )}
+              )}
             </div>
 
-            {/* Top devices singkat */}
-            <div
-                style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: 12,
-                overflow: 'hidden',
-                }}
-            >
-                <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+            <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
                 <div style={{ fontWeight: 600, fontSize: 13 }}>Devices bermasalah (top 10)</div>
-                </div>
-                <div style={{ overflowX: 'auto' }}>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                    <thead>
+                  <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                        {['Device Name', 'Device ID', 'Total event', 'Status'].map((h) => (
-                        <th key={h} style={thStyle}>
-                            {h}
-                        </th>
-                        ))}
+                      {['Device Name', 'Device ID', 'Total event', 'Status'].map((h) => (
+                        <th key={h} style={thStyle}>{h}</th>
+                      ))}
                     </tr>
-                    </thead>
-                    <tbody>
+                  </thead>
+                  <tbody>
                     {stats.length === 0 ? (
-                        <EmptyRow colSpan={4} text="Belum ada data" />
+                      <EmptyRow colSpan={4} text="Belum ada data" />
                     ) : (
-                        stats.slice(0, 10).map((s, idx) => (
+                      stats.slice(0, 10).map((s, idx) => (
                         <tr
-                            key={s.device_id}
-                            style={{
+                          key={s.device_id}
+                          style={{
                             borderBottom: '1px solid #f1f5f9',
                             background: idx % 2 === 0 ? '#fffbeb' : '#fff',
-                            }}
+                          }}
                         >
-                            <td style={{ ...tdStyle, fontWeight: 600 }}>{s.device_name}</td>
-                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
-                            {s.device_id}
-                            </td>
-                            <td style={tdStyle}>{s.total}</td>
-                            <td style={tdStyle}>
-                            <span
-                                style={{
-                                padding: '3px 10px',
-                                borderRadius: 20,
-                                fontSize: 11,
-                                fontWeight: 600,
-                                background: '#fef3c7',
-                                color: '#b45309',
-                                }}
-                            >
-                                FLAGGED
+                          <td style={{ ...tdStyle, fontWeight: 600 }}>{s.device_name}</td>
+                          <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{s.device_id}</td>
+                          <td style={tdStyle}>{s.total}</td>
+                          <td style={tdStyle}>
+                            <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#fef3c7', color: '#b45309' }}>
+                              FLAGGED
                             </span>
-                            </td>
+                          </td>
                         </tr>
-                        ))
+                      ))
                     )}
-                    </tbody>
+                  </tbody>
                 </table>
-                </div>
+              </div>
             </div>
-            </>
+          </>
         )}
 
         {statsView === 'traffic' && (
@@ -1327,7 +1451,6 @@ const VSSMonitor = () => {
               </div>
             ) : (
               <>
-                {/* Ringkasan total */}
                 <div
                   style={{
                     border: '1px solid #e2e8f0',
@@ -1366,7 +1489,6 @@ const VSSMonitor = () => {
                   </div>
                 </div>
 
-                {/* Time range */}
                 <div
                   style={{
                     display: 'flex',
@@ -1439,7 +1561,6 @@ const VSSMonitor = () => {
                   </div>
                 )}
 
-                {/* Satu grafik saja */}
                 <div
                   style={{
                     border: '1px solid #e2e8f0',
@@ -1890,6 +2011,236 @@ function DayTrendChart({
         Max delay (s)
       </text>
     </svg>
+  );
+}
+
+function DelayCategoryPieChart({
+  dist,
+  total,
+}: {
+  dist: Record<DelayCategory, number>;
+  total: number;
+}) {
+  const categories: DelayCategory[] = ['0-5s', '5s-1m', '1m-5m', '>5m'];
+  const size = 180;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = 70;
+  let angle = -Math.PI / 2;
+
+  const slices = categories
+    .map((cat) => {
+      const n = dist[cat] || 0;
+      const portion = total > 0 ? n / total : 0;
+      const start = angle;
+      const end = angle + portion * Math.PI * 2;
+      angle = end;
+      const x1 = cx + r * Math.cos(start);
+      const y1 = cy + r * Math.sin(start);
+      const x2 = cx + r * Math.cos(end);
+      const y2 = cy + r * Math.sin(end);
+      const large = portion > 0.5 ? 1 : 0;
+      const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+      return { cat, n, d, color: DELAY_CATEGORY_COLOR[cat], portion };
+    })
+    .filter((s) => s.n > 0);
+
+  return (
+    <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ flexShrink: 0 }}>
+        {slices.length === 0 ? (
+          <circle cx={cx} cy={cy} r={r} fill="#e2e8f0" />
+        ) : slices.length === 1 ? (
+          <circle cx={cx} cy={cy} r={r} fill={slices[0].color} />
+        ) : (
+          slices.map((s) => (
+            <path key={s.cat} d={s.d} fill={s.color} stroke="#fff" strokeWidth={2} />
+          ))
+        )}
+        <circle cx={cx} cy={cy} r={38} fill="#fff" />
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize={14} fontWeight={700} fill="#1e293b">
+          {total}
+        </text>
+        <text x={cx} y={cy + 14} textAnchor="middle" fontSize={10} fill="#94a3b8">
+          event
+        </text>
+      </svg>
+
+      <div style={{ flex: 1, minWidth: 140 }}>
+        {categories.map((cat) => {
+          const n = dist[cat] || 0;
+          const pct = total > 0 ? Math.round((n / total) * 1000) / 10 : 0;
+          return (
+            <div
+              key={cat}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 12,
+                marginBottom: 8,
+              }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 3,
+                  background: DELAY_CATEGORY_COLOR[cat],
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ color: '#475569', flex: 1 }}>{DELAY_CATEGORY_LABEL[cat]}</span>
+              <span style={{ fontWeight: 700, color: '#1e293b', minWidth: 28, textAlign: 'right' }}>
+                {n}
+              </span>
+              <span style={{ color: '#94a3b8', minWidth: 42, textAlign: 'right' }}>
+                {pct}%
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DeviceDayHeatmap({ rows }: { rows: DeviceDayStat[] }) {
+  if (rows.length === 0) return null;
+
+  const allDates = Array.from(
+    new Set(rows.flatMap((r) => Object.keys(r.days)))
+  ).sort();
+
+  const globalMax = Math.max(1, ...rows.flatMap((r) => Object.values(r.days)));
+
+  function cellColor(count: number): string {
+    if (!count) return '#f1f5f9';
+    const intensity = count / globalMax;
+    if (intensity <= 0.33) return '#fde68a';
+    if (intensity <= 0.66) return '#f97316';
+    return '#dc2626';
+  }
+
+  const cellSize = 18;
+  const gap = 2;
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <div
+        style={{
+          display: 'flex',
+          gap: gap,
+          marginLeft: 120,
+          marginBottom: 4,
+        }}
+      >
+        {allDates.map((d) => (
+          <div
+            key={d}
+            style={{
+              width: cellSize,
+              fontSize: 9,
+              color: '#94a3b8',
+              textAlign: 'center',
+              flexShrink: 0,
+              transform: 'rotate(-45deg)',
+              transformOrigin: 'center bottom',
+              height: 28,
+              lineHeight: '28px',
+            }}
+          >
+            {d.slice(5)}
+          </div>
+        ))}
+      </div>
+
+      {rows.map((row) => {
+        const rowTotal = Object.values(row.days).reduce((s, x) => s + x, 0);
+        return (
+          <div
+            key={row.deviceId}
+            style={{ display: 'flex', alignItems: 'center', gap: gap, marginBottom: gap }}
+          >
+            <div
+              style={{
+                width: 116,
+                flexShrink: 0,
+                fontSize: 11,
+                color: '#1e293b',
+                fontWeight: 600,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                paddingRight: 4,
+                textAlign: 'right',
+              }}
+              title={`${row.deviceName} (${row.deviceId})`}
+            >
+              {row.deviceName}
+            </div>
+
+            {allDates.map((d) => {
+              const count = row.days[d] || 0;
+              return (
+                <div
+                  key={d}
+                  title={count ? `${row.deviceName} · ${d} · ${count}x delay` : `${row.deviceName} · ${d} · aman`}
+                  style={{
+                    width: cellSize,
+                    height: cellSize,
+                    borderRadius: 3,
+                    background: cellColor(count),
+                    flexShrink: 0,
+                    cursor: count ? 'default' : 'default',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: 9,
+                    color: count >= globalMax * 0.66 ? '#fff' : '#64748b',
+                    fontWeight: count ? 600 : 400,
+                  }}
+                >
+                  {count > 0 ? count : ''}
+                </div>
+              );
+            })}
+
+            <div
+              style={{
+                fontSize: 11,
+                color: '#ef4444',
+                fontWeight: 700,
+                marginLeft: 4,
+                minWidth: 28,
+              }}
+            >
+              {rowTotal}×
+            </div>
+          </div>
+        );
+      })}
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          marginTop: 12,
+          fontSize: 11,
+          color: '#94a3b8',
+        }}
+      >
+        <span>Sedikit</span>
+        {['#fde68a', '#f97316', '#dc2626'].map((c) => (
+          <span
+            key={c}
+            style={{ width: 12, height: 12, borderRadius: 2, background: c, display: 'inline-block' }}
+          />
+        ))}
+        <span>Banyak</span>
+      </div>
+    </div>
   );
 }
 

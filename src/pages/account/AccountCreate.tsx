@@ -68,6 +68,7 @@ const AccountCreate = () => {
           { id: 1, name: 'admin' },
           { id: 2, name: 'viewer' },
           { id: 3, name: 'user' },
+          { id: 4, name: 'guest' },
         ]);
       });
   }, []);

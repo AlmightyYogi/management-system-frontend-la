@@ -140,26 +140,39 @@ const AccountEdit = () => {
                 <h6 style={{ fontSize: 14, fontWeight: 600, color: '#1e293b', margin: 0 }}>Role & Hak Akses</h6>
               </div>
               <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {[1,2,3].map(id => {
-                  const name = id === 1 ? 'admin' : id === 2 ? 'viewer' : 'user';
+                {[
+                  { id: 1, name: 'admin' },
+                  { id: 2, name: 'viewer' },
+                  { id: 3, name: 'user' },
+                  { id: 4, name: 'guest' },
+                ].map(({ id, name }) => {
                   const isSelected = form.role_id === id;
                   const meta = ROLE_META[name] ?? { icon: '👤', desc: 'Role pengguna.' };
                   return (
-                    <div key={id} onClick={() => isAdmin && setForm({ ...form, role_id: id })} style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 14,
-                      padding: '14px 16px', borderRadius: 10, cursor: isAdmin ? 'pointer' : 'default',
-                      border: `2px solid ${isSelected ? '#6366f1' : '#e2e8f0'}`,
-                      background: isSelected ? '#f0f4ff' : '#fff',
-                      transition: 'all .15s',
-                      opacity: !isAdmin && !isSelected ? 0.6 : 1
-                    }}>
-                      <div style={{ width: 20, height: 20, borderRadius: '50%', flexShrink: 0, marginTop: 1, border: `2px solid ${isSelected ? '#6366f1' : '#d1d5db'}`, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {isSelected && <div style={{ width: 9, height: 9, borderRadius: '50%', background: '#6366f1' }} />}
-                      </div>
-                      <span style={{ fontSize: 18, marginTop: 0 }}>{meta.icon}</span>
+                    <div
+                      key={id}
+                      onClick={() => isAdmin && setForm({ ...form, role_id: id })}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 14,
+                        padding: '14px 16px',
+                        borderRadius: 10,
+                        cursor: isAdmin ? 'pointer' : 'default',
+                        border: `2px solid ${isSelected ? '#6366f1' : '#e2e8f0'}`,
+                        background: isSelected ? '#f0f4ff' : '#fff',
+                        transition: 'all .15s',
+                        opacity: !isAdmin && !isSelected ? 0.6 : 1,
+                      }}
+                    >
+                      {/* radio + icon + label — sama seperti sebelumnya */}
+                      <div style={{ /* radio circle */ }} />
+                      <span style={{ fontSize: 18 }}>{meta.icon}</span>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 2, textTransform: 'capitalize' }}>{name}</div>
-                        <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.5 }}>{meta.desc}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, textTransform: 'capitalize' }}>
+                          {name}
+                        </div>
+                        <div style={{ fontSize: 12, color: '#6b7280' }}>{meta.desc}</div>
                       </div>
                     </div>
                   );
@@ -167,7 +180,6 @@ const AccountEdit = () => {
               </div>
             </div>
 
-            {/* Status Akun */}
             <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,.06)', overflow: 'hidden' }}>
               <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9' }}>
                 <h6 style={{ fontSize: 14, fontWeight: 600, color: '#1e293b', margin: 0 }}>Status Akun</h6>
@@ -196,7 +208,6 @@ const AccountEdit = () => {
             </div>
           </div>
 
-          {/* Preview Area dengan Upload Image */}
           <div style={{ position: 'sticky', top: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
             <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 4px rgba(0,0,0,.06)', overflow: 'hidden' }}>
               <div style={{ padding: '14px 20px', borderBottom: '1px solid #f1f5f9' }}>

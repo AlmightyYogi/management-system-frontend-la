@@ -7,7 +7,7 @@ import type { Account } from '../../types/account';
 import { ROLE_STYLE, STATUS_STYLE } from '../../types/account';
 import resolveStorageUrl from '../../utils/storage';
 
-const ROLE_FILTER_TABS = ['All', 'Admin', 'Agent', 'User'] as const;
+const ROLE_FILTER_TABS = ['All', 'Admin', 'Agent', 'User', 'Guest'] as const;
 type RoleTab = (typeof ROLE_FILTER_TABS)[number];
 
 const AVATAR_PALETTE = [

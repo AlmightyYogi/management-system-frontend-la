@@ -1,3 +1,5 @@
+export type DelayCategory = '0-5s' | '5s-1m' | '1m-5m' | '>5m';
+
 export type VSSDelayEvent = {
   detected_at: string;
   device_id: string;
@@ -21,8 +23,8 @@ export type VSSAlertHistory = {
   device_id: string;
   device_name: string;
   node_id?: string;
-  dtu: string;
-  report_time: number;
+  dtu?: string;
+  report_time?: number;
   action?: string;
   alarm_id?: string;
   alarm_detail?: string;
@@ -142,6 +144,20 @@ export const REASON_STYLE: Record<string, { bg: string; color: string; label: st
   storage_full: { bg: '#f5f3ff', color: '#7c3aed', label: 'Storage Full' },
   high_cpu: { bg: '#eef2ff', color: '#4338ca', label: 'High CPU' },
   alarm: { bg: '#fef2f2', color: '#b91c1c', label: 'Alarm' },
+} as const;
+
+export const DELAY_CATEGORY_LABEL: Record<DelayCategory, string> = {
+  '0-5s': '0 – 5 detik',
+  '5s-1m': '5 detik – 1 menit',
+  '1m-5m': '1 – 5 menit',
+  '>5m': 'Di atas 5 menit',
+} as const;
+
+export const DELAY_CATEGORY_COLOR: Record<DelayCategory, string> = {
+  '0-5s': '#10b981',
+  '5s-1m': '#f59e0b',
+  '1m-5m': '#f97316',
+  '>5m': '#ef4444',
 } as const;
 
 export const TRAFFIC_COLORS: Record<string, string> = {

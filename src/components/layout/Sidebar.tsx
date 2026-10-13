@@ -7,11 +7,10 @@ type NavItem = {
   to: string;
   label: string;
   icon: string;
-  /** match path prefix (untuk nested route) */
   match?: 'exact' | 'prefix';
 };
 
-const NAV_ITEMS: NavItem[] = [
+const ALL_NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', label: 'Dashboard', icon: 'bi-house-door', match: 'exact' },
   { to: '/reports', label: 'Tickets', icon: 'bi-list-task', match: 'prefix' },
   { to: '/daily', label: 'Report Daily/Weekly', icon: 'bi-file-earmark-text', match: 'prefix' },
@@ -31,6 +30,16 @@ const Sidebar = () => {
     if (item.match === 'exact') return path === to;
     return path === to || path.startsWith(to + '/');
   };
+
+  const roleName = String(
+    (user as any)?.role_name ?? (user as any)?.role ?? ''
+  ).toLowerCase();
+
+  const isGuest = roleName === 'guest' || (user as any)?.role_id === 4;
+
+  const NAV_ITEMS = isGuest
+    ? ALL_NAV_ITEMS.filter((item) => item.to === '/vss/monitor')
+    : ALL_NAV_ITEMS;
 
   const width = isCollapsed ? 72 : 260;
 
@@ -53,7 +62,6 @@ const Sidebar = () => {
         borderRight: '1px solid rgba(255,255,255,0.06)',
       }}
     >
-      {/* ===== Brand ===== */}
       <div
         style={{
           height: 64,
@@ -97,7 +105,6 @@ const Sidebar = () => {
         </div>
       </div>
 
-      {/* ===== Nav ===== */}
       <nav
         style={{
           flex: 1,
