@@ -1151,12 +1151,7 @@ const VSSMonitor = () => {
                                     ...tdStyle,
                                     fontVariantNumeric: 'tabular-nums',
                                     fontWeight: 600,
-                                    color:
-                                      (r.delay_sec ?? 0) >= 300
-                                        ? '#dc2626'
-                                        : (r.delay_sec ?? 0) >= 60
-                                          ? '#d97706'
-                                          : '#059669',
+                                    color: (r.delay_sec ?? 0) === 0 ? '#059669' : '#dc2626',
                                   }}
                                   title="Lag timestamp device (DTU) saat pesan terakhir diterima"
                                 >
@@ -1169,9 +1164,7 @@ const VSSMonitor = () => {
                                     fontWeight: 600,
                                     color: (() => {
                                       const a = ageSecFromISO(r.last_seen) ?? 0;
-                                      if (a >= 300) return '#dc2626';
-                                      if (a >= 60) return '#d97706';
-                                      return '#059669';
+                                      return a === 0 ? '#059669' : '#dc2626';
                                     })(),
                                     whiteSpace: 'nowrap',
                                   }}
@@ -1245,32 +1238,20 @@ const VSSMonitor = () => {
                               {r.device_id}
                             </td>
                             <td
-                                  style={{
-                                    ...tdStyle,
-                                    fontVariantNumeric: 'tabular-nums',
-                                    fontWeight: 600,
-                                    color:
-                                      (r.delay_sec ?? 0) >= 300
-                                        ? '#dc2626'
-                                        : (r.delay_sec ?? 0) >= 60
-                                          ? '#d97706'
-                                          : '#059669',
-                                  }}
-                                  title="Lag timestamp device (DTU) saat pesan terakhir diterima"
-                                >
-                                  {formatDelaySec(r.delay_sec)}
-                                </td>
-                                <td
-                                style={{
-                                  ...tdStyle,
-                                  fontVariantNumeric: 'tabular-nums',
-                                  color: '#475569',
-                                  whiteSpace: 'nowrap',
-                                }}
-                                title={r.detected_at ? formatDateTime(r.detected_at) : undefined}
-                              >
-                                {formatAgeSec(r.detected_at)}
-                              </td>
+                              style={{
+                                ...tdStyle,
+                                fontVariantNumeric: 'tabular-nums',
+                                fontWeight: 600,
+                                color: (() => {
+                                  const a = ageSecFromISO(r.detected_at) ?? 0;
+                                  return a === 0 ? '#059669' : '#dc2626';
+                                })(),
+                                whiteSpace: 'nowrap',
+                              }}
+                              title={r.detected_at ? formatDateTime(r.detected_at) : undefined}
+                            >
+                              {formatAgeSec(r.detected_at)}
+                            </td>
                             {/* <td style={{ ...tdStyle, fontWeight: 500, color: '#1e293b' }}>
                               {r.action || '—'}
                             </td> */}
