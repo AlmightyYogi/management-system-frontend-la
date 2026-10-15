@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import api from '../../services/api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-import type { DeviceStatRow, VSSAlertHistory, VSSDelayEvent, VSSDeviceLive, VSSTrafficStats, VSSTrafficDetail, VSSMinuteTraffic, DelayCategory } from '../../types/vss';
+import html2canvas from 'html2canvas';
+import type { DeviceStatRow, VSSAlertHistory, VSSDelayEvent, VSSDeviceLive, VSSTrafficStats, VSSTrafficDetail, VSSMinuteTraffic, DelayCategory, VSSDaySummary } from '../../types/vss';
 import { REASON_OPTIONS, REASON_STYLE, inputStyle, clearBtnStyle, btnOutline, btnPrimary, thStyle, tdStyle, TRAFFIC_COLORS, DELAY_CATEGORY_LABEL, DELAY_CATEGORY_COLOR } from '../../types/vss';
 
 const SIDEBAR_W = 240;
 
-type Tab = 'live' | 'history' | 'stats';
+type Tab = 'overview' | 'live' | 'history' | 'stats';
 type StatsView = 'summary' | 'traffic' | 'devices';
 type TrafficRange =
   | '15m'
@@ -52,6 +53,17 @@ function todayStr() {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function yesterdayStr() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function maxPastDateStr() {
+  return yesterdayStr();
 }
 
 function currentYearMonth() {
@@ -552,6 +564,12 @@ const VSSMonitor = () => {
   
   const [liveSort, setLiveSort] = useState<SortState>({ key: 'delay_sec', dir: 'asc' });
   const [histSort, setHistSort] = useState<SortState>({ key: 'detected_at', dir: 'desc' });
+
+  const [overviewDate, setOverviewDate] = useState(yesterdayStr());
+  const [overview, setOverview] = useState<VSSDaySummary | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+
+  const [exportingExcel, setExportingExcel] = useState(false);
   
 
   const perPage = 15;
@@ -672,6 +690,83 @@ const VSSMonitor = () => {
       setStatsLoading(false);
     }
   }, [yearMonth]);
+
+  const loadOverview = useCallback(async () => {
+    setOverviewLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.append('date', overviewDate || yesterdayStr());
+      const res = await api.get(`/vss/summary?${params.toString()}`);
+      const body = res.data?.data ?? res.data;
+      setOverview(body as VSSDaySummary);
+    } catch {
+      setOverview(null);
+    } finally {
+      setOverviewLoading(false);
+    }
+  }, [overviewDate]);
+
+    const overviewCaptureRef = useRef<HTMLDivElement>(null);
+  const [exporting, setExporting] = useState(false);
+
+  const exportOverviewImage = useCallback(async () => {
+    const el = overviewCaptureRef.current;
+    if (!el) return;
+    setExporting(true);
+    try {
+      const canvas = await html2canvas(el, {
+        backgroundColor: '#f8fafc',
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+      });
+      const link = document.createElement('a');
+      const label = overview?.date || overviewDate || 'rekap';
+      link.download = `vss-overview-${label}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (e) {
+      console.error('Export overview failed', e);
+    } finally {
+      setExporting(false);
+    }
+  }, [overview?.date, overviewDate]);
+
+    const exportOverviewExcel = useCallback(async () => {
+    setExportingExcel(true);
+    try {
+      const date = overviewDate || yesterdayStr();
+      const res = await api.get(`/vss/summary/export?date=${encodeURIComponent(date)}`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `vss-rekap-delay-${date}.xlsx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error('Export excel failed', e);
+      alert('Gagal export Excel. Pastikan tanggal valid dan ada data.');
+    } finally {
+      setExportingExcel(false);
+    }
+  }, [overviewDate]);
+
+  useEffect(() => {
+    if (tab === 'overview') {
+      loadOverview();
+    }
+  }, [tab, overviewDate, loadOverview]);
+
+  useEffect(() => {
+    if (tab === 'history') loadOverview();
+  }, [tab, loadOverview]);
 
   useEffect(() => {
     if (tab === 'live') loadLive();
@@ -796,7 +891,8 @@ const VSSMonitor = () => {
         : !!(histReason || histDevice || yearMonth !== currentYearMonth());
 
   const refresh = () => {
-    if (tab === 'live') loadLive();
+    if (tab === 'overview') loadOverview();
+    else if (tab === 'live') loadLive();
     else if (tab === 'history') loadHistory();
     else {
       loadStats();
@@ -821,7 +917,11 @@ const VSSMonitor = () => {
   }, [histSort.key, histSort.dir]);
 
   const subtitle =
-    tab === 'live'
+  tab === 'overview'
+      ? overview
+        ? `Rekap ${overview.date} · ${overview.total_events} event · ${overview.total_devices} device`
+        : 'Rekap delay hari yang dipilih'
+    : tab === 'live'
         ? liveTotal > 0
         ? `${(livePage - 1) * perPage + 1}–${Math.min(livePage * perPage, liveTotal)} dari ${liveTotal} device (live)`
         : '0 device (live) — menunggu traffic WS'
@@ -862,6 +962,7 @@ const VSSMonitor = () => {
                 { id: 'live' as Tab, label: 'Live delays', icon: 'bi-activity' },
                 { id: 'history' as Tab, label: 'History', icon: 'bi-clock-history' },
                 { id: 'stats' as Tab, label: 'Statistik', icon: 'bi-bar-chart' },
+                { id: 'overview' as Tab, label: 'Overview (rekap)', icon: 'bi-camera' },
               ] as const
             ).map((t) => (
               <label
@@ -965,14 +1066,19 @@ const VSSMonitor = () => {
             </>
             ) : (
             <>
-              <FilterSection label="BULAN (YYYY-MM)">
-                <input
-                  type="month"
-                  value={yearMonth}
-                  onChange={(e) => setYearMonth(e.target.value)}
-                  style={inputStyle}
-                />
-              </FilterSection>
+              {(tab === 'history' || tab === 'stats') && (
+                <FilterSection label="BULAN (YYYY-MM)">
+                  <input
+                    type="month"
+                    value={yearMonth}
+                    onChange={(e) => {
+                      setYearMonth(e.target.value);
+                      setHistPage(1);
+                    }}
+                    style={inputStyle}
+                  />
+                </FilterSection>
+              )}
               {tab === 'history' && (
                 <>
                   <FilterSection label="REASON">
@@ -1001,6 +1107,26 @@ const VSSMonitor = () => {
                 </>
               )}
             </>
+          )}
+
+          {tab === 'overview' && (
+            <FilterSection label="TANGGAL REKAP (MASA LALU)">
+              <input
+                type="date"
+                value={overviewDate}
+                max={maxPastDateStr()}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v && v < todayStr()) {
+                    setOverviewDate(v);
+                  }
+                }}
+                style={inputStyle}
+              />
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 6 }}>
+                Hanya tanggal sebelum hari ini. Default: kemarin.
+              </div>
+            </FilterSection>
           )}
 
           {hasFilters && (
@@ -1275,6 +1401,215 @@ const VSSMonitor = () => {
               </>
             ))}
 
+            {tab === 'overview' &&
+              (overviewLoading ? (
+                <LoadingSpinner message="Memuat rekap hari..." />
+              ) : !overview ? (
+                <div style={{ padding: 48, textAlign: 'center', color: '#94a3b8' }}>
+                  Tidak ada data untuk tanggal ini
+                </div>
+              ) : (
+                <div style={{ padding: '12px 16px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10, gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={exportOverviewExcel}
+                      disabled={exportingExcel || overviewLoading}
+                      style={{
+                        ...btnOutline,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        opacity: exportingExcel ? 0.7 : 1,
+                      }}
+                    >
+                      <i className="bi bi-file-earmark-excel" />
+                      {exportingExcel ? 'Export…' : 'Export Excel'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exportOverviewImage}
+                      disabled={exporting}
+                      style={{
+                        ...btnPrimary,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        opacity: exporting ? 0.7 : 1,
+                      }}
+                    >
+                      <i className="bi bi-camera" />
+                      {exporting ? 'Menyimpan…' : 'Simpan gambar rekap'}
+                    </button>
+                  </div>
+
+                  <div
+                    ref={overviewCaptureRef}
+                    style={{
+                      background: '#f8fafc',
+                      borderRadius: 12,
+                      padding: 16,
+                      border: '1px solid #e2e8f0',
+                    }}
+                  >
+                    <div style={{ marginBottom: 12 }}>
+                      <h3 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#1e293b' }}>
+                        Overview —{' '}
+                        <span style={{ color: '#dc2626' }}>
+                          {overview.date === yesterdayStr() ? 'KEMARIN' : overview.date}
+                        </span>
+                      </h3>
+                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                        Ringkasan delay device · 00:00 – 23:59
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                        gap: 10,
+                        marginBottom: 12,
+                      }}
+                    >
+                      <StatCard label="Total device" value={String(overview.total_devices)} />
+                      <StatCard label="Delay > 5 detik" value={String(overview.delay_over_5_count)} />
+                      <StatCard label="Delay tertinggi" value={formatDelaySec(overview.max_delay_sec)} />
+                      <StatCard label="Total event" value={String(overview.total_events)} />
+                    </div>
+
+                    {overview.max_delay_device && (
+                      <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+                        Delay tertinggi:{' '}
+                        <strong style={{ color: '#dc2626' }}>
+                          {formatDelaySec(overview.max_delay_sec)}
+                        </strong>{' '}
+                        · {overview.max_delay_device} ({overview.max_delay_device_id})
+                      </div>
+                    )}
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(260px, 0.9fr) minmax(320px, 1.1fr)',
+                        gap: 12,
+                        alignItems: 'stretch',
+                      }}
+                    >
+                      <div
+                        style={{
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 12,
+                          padding: '12px 14px',
+                          background: '#fff',
+                          display: 'flex',
+                          flexDirection: 'column',
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 2 }}>
+                          Distribusi Durasi Delay
+                        </div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>
+                          {overview.date}
+                        </div>
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
+                          <DelayCategoryPieChart
+                            dist={{
+                              '0-5s': overview.distribution?.['0-5s'] || 0,
+                              '5s-1m': overview.distribution?.['5s-1m'] || 0,
+                              '1m-5m': overview.distribution?.['1m-5m'] || 0,
+                              '>5m': overview.distribution?.['>5m'] || 0,
+                            }}
+                            total={overview.total_devices}
+                          />
+                        </div>
+                      </div>
+
+                      <div
+                        style={{
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 12,
+                          overflow: 'hidden',
+                          background: '#fff',
+                          display: 'flex',
+                          flexDirection: 'column',
+                        }}
+                      >
+                        <div
+                          style={{
+                            padding: '10px 12px',
+                            background: '#f8fafc',
+                            borderBottom: '1px solid #e2e8f0',
+                          }}
+                        >
+                          <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>
+                            Top 10 delay tertinggi
+                          </div>
+                          <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                            Max delay · {overview.date}
+                          </div>
+                        </div>
+                        <div style={{ overflow: 'visible' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                            <thead>
+                              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                                {['#', 'DEVICE', 'DEVICE ID', 'DELAY MAKS'].map((h) => (
+                                  <th key={h} style={{ ...thStyle, padding: '8px 10px', fontSize: 11 }}>
+                                    {h}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(overview.top_devices || []).length === 0 ? (
+                                <EmptyRow colSpan={4} text="Tidak ada delay > 5 detik" />
+                              ) : (
+                                overview.top_devices.map((d, idx) => (
+                                  <tr
+                                    key={d.device_id}
+                                    style={{
+                                      borderBottom: '1px solid #f1f5f9',
+                                      background: idx % 2 === 0 ? '#fff' : '#fafafa',
+                                    }}
+                                  >
+                                    <td style={{ ...tdStyle, padding: '7px 10px' }}>{idx + 1}</td>
+                                    <td style={{ ...tdStyle, padding: '7px 10px', fontWeight: 600 }}>
+                                      {d.device_name}
+                                    </td>
+                                    <td
+                                      style={{
+                                        ...tdStyle,
+                                        padding: '7px 10px',
+                                        fontFamily: 'monospace',
+                                        fontSize: 11,
+                                      }}
+                                    >
+                                      {d.device_id}
+                                    </td>
+                                    <td
+                                      style={{
+                                        ...tdStyle,
+                                        padding: '7px 10px',
+                                        fontWeight: 700,
+                                        color: '#dc2626',
+                                        fontVariantNumeric: 'tabular-nums',
+                                        whiteSpace: 'nowrap',
+                                      }}
+                                    >
+                                      {formatDelaySec(d.max_delay_sec)}
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
           {tab === 'stats' &&
             (statsLoading ? (
               <LoadingSpinner message="Menghitung statistik..." />
@@ -1319,444 +1654,444 @@ const VSSMonitor = () => {
                   ))}
                 </div>
 
-        {statsView === 'summary' && (
-          <>
-            <div
-              style={{
-                background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)',
-                border: '1px solid #e0e7ff',
-                borderRadius: 14,
-                padding: 18,
-                marginBottom: 16,
-              }}
-            >
-              <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b', marginBottom: 6 }}>
-                Fleet event summary
-              </div>
-              <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
-                Periode <strong>{yearMonth || '—'}</strong>
-                {' · '}
-                Total event: <strong>{statsRows.length}</strong>
-                {' · '}
-                Device terdampak: <strong>{stats.length}</strong>
-                {topReason && (
-                  <>
-                    {' · '}Reason terbanyak:{' '}
-                    <strong>
-                      {REASON_STYLE[topReason[0]]?.label || topReason[0]} ({topReason[1]})
-                    </strong>
-                  </>
-                )}
-              </div>
-              {maxDelayEvent && (
-                <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
-                  Delay tertinggi di history:{' '}
-                  <strong style={{ color: '#dc2626' }}>
-                    {formatDelaySec(maxDelayEvent.delay_sec)}
-                  </strong>{' '}
-                  ({maxDelayEvent.device_name || maxDelayEvent.device_id})
-                </div>
-              )}
-              {topDevices.length > 0 && (
-                <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
-                  Top 5 device:{' '}
-                  {topDevices.map((d) => `${d.device_name} (${d.total} event)`).join(', ')}
-                </div>
-              )}
-            </div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-                gap: 12,
-                marginBottom: 16,
-              }}
-            >
-              <StatCard label="Periode" value={yearMonth || '—'} />
-              <StatCard label="Total event" value={String(statsRows.length)} />
-              <StatCard label="Device" value={String(stats.length)} />
-              <StatCard label="Reason unik" value={String(reasonTotals.length)} />
-            </div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '1fr 1fr',
-                gap: 16,
-                marginBottom: 16,
-              }}
-            >
+          {statsView === 'summary' && (
+            <>
               <div
                 style={{
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 12,
-                  padding: 16,
-                  background: '#fff',
+                  background: 'linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%)',
+                  border: '1px solid #e0e7ff',
+                  borderRadius: 14,
+                  padding: 18,
+                  marginBottom: 16,
                 }}
               >
-                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
-                  Distribusi Durasi Delay
+                <div style={{ fontWeight: 700, fontSize: 16, color: '#1e293b', marginBottom: 6 }}>
+                  Fleet event summary
                 </div>
-                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
-                  Kategori berdasarkan lamanya delay yang tercatat
+                <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.6 }}>
+                  Periode <strong>{yearMonth || '—'}</strong>
+                  {' · '}
+                  Total event: <strong>{statsRows.length}</strong>
+                  {' · '}
+                  Device terdampak: <strong>{stats.length}</strong>
+                  {topReason && (
+                    <>
+                      {' · '}Reason terbanyak:{' '}
+                      <strong>
+                        {REASON_STYLE[topReason[0]]?.label || topReason[0]} ({topReason[1]})
+                      </strong>
+                    </>
+                  )}
                 </div>
-                {statsRows.length === 0 ? (
-                  <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: 24 }}>
-                    Belum ada data
+                {maxDelayEvent && (
+                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
+                    Delay tertinggi di history:{' '}
+                    <strong style={{ color: '#dc2626' }}>
+                      {formatDelaySec(maxDelayEvent.delay_sec)}
+                    </strong>{' '}
+                    ({maxDelayEvent.device_name || maxDelayEvent.device_id})
                   </div>
-                ) : (
-                  <DelayCategoryPieChart dist={delayCategoryDist} total={statsRows.filter(r => r.delay_sec != null).length} />
+                )}
+                {topDevices.length > 0 && (
+                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 6 }}>
+                    Top 5 device:{' '}
+                    {topDevices.map((d) => `${d.device_name} (${d.total} event)`).join(', ')}
+                  </div>
                 )}
               </div>
 
               <div
                 style={{
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 12,
-                  padding: 16,
-                  background: '#fff',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                  gap: 12,
+                  marginBottom: 16,
                 }}
               >
-                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
-                  Top Device — Frekuensi Delay per Hari
-                </div>
-                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
-                  Heatmap hari aktif · semakin gelap semakin banyak delay dalam 1 hari
-                </div>
-                {deviceDayStats.length === 0 ? (
-                  <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: 24 }}>
-                    Belum ada data delay
-                  </div>
-                ) : (
-                  <DeviceDayHeatmap rows={deviceDayStats.slice(0, 8)} />
-                )}
+                <StatCard label="Periode" value={yearMonth || '—'} />
+                <StatCard label="Total event" value={String(statsRows.length)} />
+                <StatCard label="Device" value={String(stats.length)} />
+                <StatCard label="Reason unik" value={String(reasonTotals.length)} />
               </div>
-            </div>
 
-            <div
-              style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: 12,
-                padding: 16,
-                marginBottom: 16,
-                background: '#fff',
-              }}
-            >
-              <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
-                Tren event per hari
-              </div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
-                Jumlah event history · garis biru = count, merah = max delay (detik)
-              </div>
-              {daySeries.length === 0 ? (
-                <div style={{ color: '#94a3b8', fontSize: 13, padding: 24, textAlign: 'center' }}>
-                  Belum ada data di periode ini
-                </div>
-              ) : (
-                <DayTrendChart series={daySeries} />
-              )}
-            </div>
-
-            <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
-              <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>Devices bermasalah (top 10)</div>
-              </div>
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                      {['Device Name', 'Device ID', 'Total event', 'Status'].map((h) => (
-                        <th key={h} style={thStyle}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {stats.length === 0 ? (
-                      <EmptyRow colSpan={4} text="Belum ada data" />
-                    ) : (
-                      stats.slice(0, 10).map((s, idx) => (
-                        <tr
-                          key={s.device_id}
-                          style={{
-                            borderBottom: '1px solid #f1f5f9',
-                            background: idx % 2 === 0 ? '#fffbeb' : '#fff',
-                          }}
-                        >
-                          <td style={{ ...tdStyle, fontWeight: 600 }}>{s.device_name}</td>
-                          <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{s.device_id}</td>
-                          <td style={tdStyle}>{s.total}</td>
-                          <td style={tdStyle}>
-                            <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#fef3c7', color: '#b45309' }}>
-                              FLAGGED
-                            </span>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </>
-        )}
-
-        {statsView === 'traffic' && (
-          <div>
-            {trafficLoading && !trafficDetail ? (
-              <LoadingSpinner />
-            ) : !trafficDetail ? (
-              <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center' }}>
-                Belum ada data traffic
-              </div>
-            ) : (
-              <>
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 16,
+                  marginBottom: 16,
+                }}
+              >
                 <div
                   style={{
                     border: '1px solid #e2e8f0',
                     borderRadius: 12,
                     padding: 16,
-                    marginBottom: 16,
                     background: '#fff',
-                    fontSize: 13,
-                    color: '#334155',
-                    lineHeight: 1.6,
                   }}
                 >
-                  <div style={{ fontWeight: 600, marginBottom: 6 }}>Traffic per Action</div>
-                  <div>
-                    Total sejak server nyala:{' '}
-                    {Object.entries(trafficDetail.totals || {})
-                      .sort(([a], [b]) => a.localeCompare(b))
-                      .map(([k, v]) => `${k}: ${v.toLocaleString()}`)
-                      .join(' | ') || '—'}
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
+                    Distribusi Durasi Delay
                   </div>
-                  <div>
-                    Total traffic keseluruhan:{' '}
-                    <strong>{(trafficDetail.total_messages || 0).toLocaleString()}</strong>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                    Kategori berdasarkan lamanya delay yang tercatat
                   </div>
-                  <div>
-                    Traffic menit berjalan ({trafficDetail.current_minute?.minute || '—'}):{' '}
-                    <strong>{(trafficDetail.current_minute?.total || 0).toLocaleString()}</strong>
-                    {' total ('}
-                    {(trafficDetail.tracked_actions || ['80003', '80004', '80005', '80007', '80030'])
-                      .map(
-                        (a) =>
-                          `${a}: ${(trafficDetail.current_minute?.counts?.[a] || 0).toLocaleString()}`
-                      )
-                      .join(', ')}
-                    {')'}
-                  </div>
+                  {statsRows.length === 0 ? (
+                    <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: 24 }}>
+                      Belum ada data
+                    </div>
+                  ) : (
+                    <DelayCategoryPieChart dist={delayCategoryDist} total={statsRows.filter(r => r.delay_sec != null).length} />
+                  )}
                 </div>
 
                 <div
                   style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: 8,
-                    alignItems: 'center',
-                    marginBottom: 12,
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 12,
+                    padding: 16,
+                    background: '#fff',
                   }}
                 >
-                  {(
-                    [
-                      { id: '15m' as TrafficRange, label: 'Last 15m' },
-                      { id: '1h' as TrafficRange, label: 'Last 1h' },
-                      { id: '3h' as TrafficRange, label: 'Last 3h' },
-                      { id: '6h' as TrafficRange, label: 'Last 6h' },
-                      { id: '12h' as TrafficRange, label: 'Last 12h' },
-                      { id: '24h' as TrafficRange, label: 'Last 24h' },
-                      { id: 'custom' as TrafficRange, label: 'Custom' },
-                    ] as const
-                  ).map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      onClick={() => setTrafficRange(r.id)}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: 7,
-                        border: `1px solid ${trafficRange === r.id ? '#6366f1' : '#e2e8f0'}`,
-                        background: trafficRange === r.id ? '#6366f1' : '#fff',
-                        color: trafficRange === r.id ? '#fff' : '#374151',
-                        fontSize: 12,
-                        fontWeight: trafficRange === r.id ? 600 : 500,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {r.label}
-                    </button>
-                  ))}
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
+                    Top Device — Frekuensi Delay per Hari
+                  </div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                    Heatmap hari aktif · semakin gelap semakin banyak delay dalam 1 hari
+                  </div>
+                  {deviceDayStats.length === 0 ? (
+                    <div style={{ color: '#94a3b8', fontSize: 13, textAlign: 'center', padding: 24 }}>
+                      Belum ada data delay
+                    </div>
+                  ) : (
+                    <DeviceDayHeatmap rows={deviceDayStats.slice(0, 8)} />
+                  )}
                 </div>
+              </div>
 
-                {trafficRange === 'custom' && (
+              <div
+                style={{
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 12,
+                  padding: 16,
+                  marginBottom: 16,
+                  background: '#fff',
+                }}
+              >
+                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 4 }}>
+                  Tren event per hari
+                </div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                  Jumlah event history · garis biru = count, merah = max delay (detik)
+                </div>
+                {daySeries.length === 0 ? (
+                  <div style={{ color: '#94a3b8', fontSize: 13, padding: 24, textAlign: 'center' }}>
+                    Belum ada data di periode ini
+                  </div>
+                ) : (
+                  <DayTrendChart series={daySeries} />
+                )}
+              </div>
+
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden' }}>
+                <div style={{ padding: '12px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>Devices bermasalah (top 10)</div>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        {['Device Name', 'Device ID', 'Total event', 'Status'].map((h) => (
+                          <th key={h} style={thStyle}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stats.length === 0 ? (
+                        <EmptyRow colSpan={4} text="Belum ada data" />
+                      ) : (
+                        stats.slice(0, 10).map((s, idx) => (
+                          <tr
+                            key={s.device_id}
+                            style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              background: idx % 2 === 0 ? '#fffbeb' : '#fff',
+                            }}
+                          >
+                            <td style={{ ...tdStyle, fontWeight: 600 }}>{s.device_name}</td>
+                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{s.device_id}</td>
+                            <td style={tdStyle}>{s.total}</td>
+                            <td style={tdStyle}>
+                              <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: '#fef3c7', color: '#b45309' }}>
+                                FLAGGED
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
+
+          {statsView === 'traffic' && (
+            <div>
+              {trafficLoading && !trafficDetail ? (
+                <LoadingSpinner />
+              ) : !trafficDetail ? (
+                <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center' }}>
+                  Belum ada data traffic
+                </div>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 12,
+                      padding: 16,
+                      marginBottom: 16,
+                      background: '#fff',
+                      fontSize: 13,
+                      color: '#334155',
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Traffic per Action</div>
+                    <div>
+                      Total sejak server nyala:{' '}
+                      {Object.entries(trafficDetail.totals || {})
+                        .sort(([a], [b]) => a.localeCompare(b))
+                        .map(([k, v]) => `${k}: ${v.toLocaleString()}`)
+                        .join(' | ') || '—'}
+                    </div>
+                    <div>
+                      Total traffic keseluruhan:{' '}
+                      <strong>{(trafficDetail.total_messages || 0).toLocaleString()}</strong>
+                    </div>
+                    <div>
+                      Traffic menit berjalan ({trafficDetail.current_minute?.minute || '—'}):{' '}
+                      <strong>{(trafficDetail.current_minute?.total || 0).toLocaleString()}</strong>
+                      {' total ('}
+                      {(trafficDetail.tracked_actions || ['80003', '80004', '80005', '80007', '80030'])
+                        .map(
+                          (a) =>
+                            `${a}: ${(trafficDetail.current_minute?.counts?.[a] || 0).toLocaleString()}`
+                        )
+                        .join(', ')}
+                      {')'}
+                    </div>
+                  </div>
+
                   <div
                     style={{
                       display: 'flex',
                       flexWrap: 'wrap',
-                      gap: 10,
+                      gap: 8,
                       alignItems: 'center',
                       marginBottom: 12,
-                      fontSize: 13,
                     }}
                   >
-                    <label style={{ color: '#64748b' }}>
-                      From{' '}
-                      <input
-                        type="datetime-local"
-                        value={trafficFrom}
-                        onChange={(e) => setTrafficFrom(e.target.value)}
-                        style={{ ...inputStyle, width: 'auto', marginLeft: 6 }}
-                      />
-                    </label>
-                    <label style={{ color: '#64748b' }}>
-                      To{' '}
-                      <input
-                        type="datetime-local"
-                        value={trafficTo}
-                        onChange={(e) => setTrafficTo(e.target.value)}
-                        style={{ ...inputStyle, width: 'auto', marginLeft: 6 }}
-                      />
-                    </label>
-                  </div>
-                )}
-
-                <div
-                  style={{
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 12,
-                    padding: 16,
-                    background: '#fff',
-                  }}
-                >
-                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
-                    Trafik per menit (realtime)
-                  </div>
-                  <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
-                    Hover titik/menit untuk detail · update tiap 5 detik · data tersedia:{' '}
-                    {(trafficDetail.series || []).length} menit
-                    {(trafficDetail.series || []).length < 60
-                      ? ' (backend ~60 menit terakhir)'
-                      : ''}
-                  </div>
-                  <TrafficPerMinuteChart
-                    series={filteredTrafficSeries}
-                    current={
-                      trafficRange === 'custom' ? undefined : trafficDetail.current_minute
-                    }
-                    actions={
-                      trafficDetail.tracked_actions || [
-                        '80003',
-                        '80004',
-                        '80005',
-                        '80007',
-                        '80030',
-                      ]
-                    }
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {statsView === 'devices' && (
-            <div
-            style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: 12,
-                overflow: 'hidden',
-            }}
-            >
-            <div
-                style={{
-                padding: '12px 14px',
-                borderBottom: '1px solid #e2e8f0',
-                background: '#f8fafc',
-                }}
-            >
-                <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>
-                Top device / kendaraan bermasalah
-                </div>
-                <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                Diurutkan dari jumlah event history terbanyak · {yearMonth}
-                </div>
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                    <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    {['#', 'NAME', 'DEVICE ID', 'TOTAL', 'BREAKDOWN'].map((h) => (
-                        <th key={h} style={thStyle}>
-                        {h}
-                        </th>
-                    ))}
-                    </tr>
-                </thead>
-                <tbody>
-                    {stats.length === 0 ? (
-                    <EmptyRow colSpan={5} text="Belum ada data statistik" />
-                    ) : (
-                    stats.slice(0, 20).map((s, idx) => (
-                        <tr
-                        key={s.device_id}
+                    {(
+                      [
+                        { id: '15m' as TrafficRange, label: 'Last 15m' },
+                        { id: '1h' as TrafficRange, label: 'Last 1h' },
+                        { id: '3h' as TrafficRange, label: 'Last 3h' },
+                        { id: '6h' as TrafficRange, label: 'Last 6h' },
+                        { id: '12h' as TrafficRange, label: 'Last 12h' },
+                        { id: '24h' as TrafficRange, label: 'Last 24h' },
+                        { id: 'custom' as TrafficRange, label: 'Custom' },
+                      ] as const
+                    ).map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() => setTrafficRange(r.id)}
                         style={{
-                            borderBottom: '1px solid #f1f5f9',
-                            background: idx % 2 === 0 ? '#fff' : '#fafafa',
+                          padding: '6px 12px',
+                          borderRadius: 7,
+                          border: `1px solid ${trafficRange === r.id ? '#6366f1' : '#e2e8f0'}`,
+                          background: trafficRange === r.id ? '#6366f1' : '#fff',
+                          color: trafficRange === r.id ? '#fff' : '#374151',
+                          fontSize: 12,
+                          fontWeight: trafficRange === r.id ? 600 : 500,
+                          cursor: 'pointer',
                         }}
-                        >
-                        <td style={tdStyle}>{idx + 1}</td>
-                        <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>
-                            {s.device_name}
-                        </td>
-                        <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
-                            {s.device_id}
-                        </td>
-                        <td style={tdStyle}>
-                            <span
-                            style={{
-                                display: 'inline-block',
-                                minWidth: 28,
-                                textAlign: 'center',
-                                padding: '2px 8px',
-                                borderRadius: 20,
-                                background: '#fef2f2',
-                                color: '#dc2626',
-                                fontWeight: 700,
-                                fontSize: 12,
-                            }}
-                            >
-                            {s.total}
-                            </span>
-                        </td>
-                                    <td style={tdStyle}>
-                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                        {Object.entries(s.by_reason).map(([reason, n]) => (
-                                            <span
-                                            key={reason}
-                                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                                            >
-                                            <ReasonBadge reason={reason} />
-                                            <span style={{ fontSize: 11, color: '#94a3b8' }}>×{n}</span>
-                                            </span>
-                                        ))}
-                                        </div>
-                                    </td>
-                                    </tr>
-                                ))
-                                )}
-                            </tbody>
-                            </table>
-                        </div>
-                        </div>
-                    )}
+                      >
+                        {r.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {trafficRange === 'custom' && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 10,
+                        alignItems: 'center',
+                        marginBottom: 12,
+                        fontSize: 13,
+                      }}
+                    >
+                      <label style={{ color: '#64748b' }}>
+                        From{' '}
+                        <input
+                          type="datetime-local"
+                          value={trafficFrom}
+                          onChange={(e) => setTrafficFrom(e.target.value)}
+                          style={{ ...inputStyle, width: 'auto', marginLeft: 6 }}
+                        />
+                      </label>
+                      <label style={{ color: '#64748b' }}>
+                        To{' '}
+                        <input
+                          type="datetime-local"
+                          value={trafficTo}
+                          onChange={(e) => setTrafficTo(e.target.value)}
+                          style={{ ...inputStyle, width: 'auto', marginLeft: 6 }}
+                        />
+                      </label>
                     </div>
-                ))}
+                  )}
+
+                  <div
+                    style={{
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 12,
+                      padding: 16,
+                      background: '#fff',
+                    }}
+                  >
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
+                      Trafik per menit (realtime)
                     </div>
-                </div>
-                </div>
-            );
-        };
+                    <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
+                      Hover titik/menit untuk detail · update tiap 5 detik · data tersedia:{' '}
+                      {(trafficDetail.series || []).length} menit
+                      {(trafficDetail.series || []).length < 60
+                        ? ' (backend ~60 menit terakhir)'
+                        : ''}
+                    </div>
+                    <TrafficPerMinuteChart
+                      series={filteredTrafficSeries}
+                      current={
+                        trafficRange === 'custom' ? undefined : trafficDetail.current_minute
+                      }
+                      actions={
+                        trafficDetail.tracked_actions || [
+                          '80003',
+                          '80004',
+                          '80005',
+                          '80007',
+                          '80030',
+                        ]
+                      }
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {statsView === 'devices' && (
+              <div
+              style={{
+                  border: '1px solid #e2e8f0',
+                  borderRadius: 12,
+                  overflow: 'hidden',
+              }}
+              >
+              <div
+                  style={{
+                  padding: '12px 14px',
+                  borderBottom: '1px solid #e2e8f0',
+                  background: '#f8fafc',
+                  }}
+              >
+                  <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>
+                  Top device / kendaraan bermasalah
+                  </div>
+                  <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                  Diurutkan dari jumlah event history terbanyak · {yearMonth}
+                  </div>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                      <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                      {['#', 'NAME', 'DEVICE ID', 'TOTAL', 'BREAKDOWN'].map((h) => (
+                          <th key={h} style={thStyle}>
+                          {h}
+                          </th>
+                      ))}
+                      </tr>
+                  </thead>
+                  <tbody>
+                      {stats.length === 0 ? (
+                      <EmptyRow colSpan={5} text="Belum ada data statistik" />
+                      ) : (
+                      stats.slice(0, 20).map((s, idx) => (
+                          <tr
+                          key={s.device_id}
+                          style={{
+                              borderBottom: '1px solid #f1f5f9',
+                              background: idx % 2 === 0 ? '#fff' : '#fafafa',
+                          }}
+                          >
+                          <td style={tdStyle}>{idx + 1}</td>
+                          <td style={{ ...tdStyle, fontWeight: 600, color: '#1e293b' }}>
+                              {s.device_name}
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
+                              {s.device_id}
+                          </td>
+                          <td style={tdStyle}>
+                              <span
+                              style={{
+                                  display: 'inline-block',
+                                  minWidth: 28,
+                                  textAlign: 'center',
+                                  padding: '2px 8px',
+                                  borderRadius: 20,
+                                  background: '#fef2f2',
+                                  color: '#dc2626',
+                                  fontWeight: 700,
+                                  fontSize: 12,
+                              }}
+                              >
+                              {s.total}
+                              </span>
+                          </td>
+                                      <td style={tdStyle}>
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                          {Object.entries(s.by_reason).map(([reason, n]) => (
+                                              <span
+                                              key={reason}
+                                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                              >
+                                              <ReasonBadge reason={reason} />
+                                              <span style={{ fontSize: 11, color: '#94a3b8' }}>×{n}</span>
+                                              </span>
+                                          ))}
+                                          </div>
+                                      </td>
+                                      </tr>
+                                  ))
+                                  )}
+                              </tbody>
+                              </table>
+                          </div>
+                          </div>
+                      )}
+                      </div>
+                  ))}
+                      </div>
+                  </div>
+                  </div>
+              );
+          };
 
 const ReasonBadge = ({ reason }: { reason: string }) => {
   const s = REASON_STYLE[reason] || {

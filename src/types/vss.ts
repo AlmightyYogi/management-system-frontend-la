@@ -93,6 +93,25 @@ export type VSSTrafficDetail = {
   tracked_actions: string[];
 };
 
+export type VSSDaySummaryDevice = {
+  device_id: string;
+  device_name: string;
+  max_delay_sec: number;
+  event_count: number;
+};
+
+export type VSSDaySummary = {
+  date: string;
+  total_devices: number;
+  delay_over_5_count: number;
+  total_events: number;
+  max_delay_sec: number;
+  max_delay_device: string;
+  max_delay_device_id: string;
+  distribution: Record<string, number>;
+  top_devices: VSSDaySummaryDevice[];
+};
+
 export interface VSSDeviceLive {
   device_id: string;
   device_name: string;
