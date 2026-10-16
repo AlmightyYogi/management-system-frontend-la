@@ -167,12 +167,12 @@ const Login = () => {
             </button>
           </form>
 
-          <p className="text-center mt-3 mb-0" style={{ fontSize: 13, color: '#64748b' }}>
+          {/* <p className="text-center mt-3 mb-0" style={{ fontSize: 13, color: '#64748b' }}>
             Don't have an account?{' '}
             <a href="/register" style={{ color: '#6366f1', textDecoration: 'none', fontWeight: 600 }}>
               Register
             </a>
-          </p>
+          </p> */}
         </div>
       </div>
     </div>

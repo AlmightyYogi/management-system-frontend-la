@@ -243,9 +243,11 @@ function groupHistoryByDay(rows: VSSAlertHistory[]) {
 }
 
 function categorizeDelay(sec: number): DelayCategory {
-  if (sec <= 5) return '0-5s';
-  if (sec <= 60) return '5s-1m';
-  if (sec <= 300) return '1m-5m';
+  const s = Math.abs(Math.floor(sec));
+  if (s === 0) return '0s';
+  if (s <= 5) return '1s-5s';
+  if (s <= 60) return '5s-1m';
+  if (s <= 300) return '1m-5m';
   return '>5m';
 }
 
@@ -853,7 +855,13 @@ const VSSMonitor = () => {
     }, [statsRows])
 
     const delayCategoryDist = useMemo(() => {
-    const counts: Record<DelayCategory, number> = { '0-5s': 0, '5s-1m': 0, '1m-5m': 0, '>5m': 0 };
+    const counts: Record<DelayCategory, number> = {
+      '0s': 0,
+      '1s-5s': 0,
+      '5s-1m': 0,
+      '1m-5m': 0,
+      '>5m': 0,
+    };
     for (const r of statsRows) {
       if (r.delay_sec == null) continue;
       counts[categorizeDelay(r.delay_sec)] += 1;
@@ -1515,7 +1523,8 @@ const VSSMonitor = () => {
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
                           <DelayCategoryPieChart
                             dist={{
-                              '0-5s': overview.distribution?.['0-5s'] || 0,
+                              '0s': overview.distribution?.['0s'] || 0,
+                              '1s-5s': overview.distribution?.['1s-5s'] || 0,
                               '5s-1m': overview.distribution?.['5s-1m'] || 0,
                               '1m-5m': overview.distribution?.['1m-5m'] || 0,
                               '>5m': overview.distribution?.['>5m'] || 0,
@@ -2416,7 +2425,7 @@ function DelayCategoryPieChart({
   dist: Record<DelayCategory, number>;
   total: number;
 }) {
-  const categories: DelayCategory[] = ['0-5s', '5s-1m', '1m-5m', '>5m'];
+  const categories: DelayCategory[] = ['0s', '1s-5s', '5s-1m', '1m-5m', '>5m'];
   const size = 180;
   const cx = size / 2;
   const cy = size / 2;

@@ -1,4 +1,4 @@
-export type DelayCategory = '0-5s' | '5s-1m' | '1m-5m' | '>5m';
+export type DelayCategory = '0s' | '1s-5s' | '5s-1m' | '1m-5m' | '>5m';
 
 export type VSSDelayEvent = {
   detected_at: string;
@@ -166,14 +166,16 @@ export const REASON_STYLE: Record<string, { bg: string; color: string; label: st
 } as const;
 
 export const DELAY_CATEGORY_LABEL: Record<DelayCategory, string> = {
-  '0-5s': '0 – 5 detik',
+  '0s': '0 detik (SLA)',
+  '1s-5s': '1 – 5 detik',
   '5s-1m': '5 detik – 1 menit',
   '1m-5m': '1 – 5 menit',
   '>5m': 'Di atas 5 menit',
 } as const;
 
 export const DELAY_CATEGORY_COLOR: Record<DelayCategory, string> = {
-  '0-5s': '#10b981',
+  '0s': '#10b981',
+  '1s-5s': '#84cc16',
   '5s-1m': '#f59e0b',
   '1m-5m': '#f97316',
   '>5m': '#ef4444',
