@@ -1480,7 +1480,7 @@ const VSSMonitor = () => {
                         marginBottom: 12,
                       }}
                     >
-                      <StatCard label="Total device" value={String(overview.total_devices)} />
+                      <StatCard label="Total device delay" value={String(overview.total_devices)} />
                       <StatCard label="Delay > 5 detik" value={String(overview.delay_over_5_count)} />
                       <StatCard label="Delay tertinggi" value={formatDelaySec(overview.max_delay_sec)} />
                       <StatCard label="Total event" value={String(overview.total_events)} />
