@@ -166,12 +166,12 @@ export const REASON_STYLE: Record<string, { bg: string; color: string; label: st
 } as const;
 
 export const DELAY_CATEGORY_LABEL: Record<DelayCategory, string> = {
-  '0s': '0 detik (SLA)',
-  '1s-5s': '1 – 5 detik',
+  '0s': '≤ 3 detik (tidak dihitung delay)',
+  '1s-5s': '3 – 5 detik',
   '5s-1m': '5 detik – 1 menit',
   '1m-5m': '1 – 5 menit',
   '>5m': 'Di atas 5 menit',
-} as const;
+};
 
 export const DELAY_CATEGORY_COLOR: Record<DelayCategory, string> = {
   '0s': '#10b981',

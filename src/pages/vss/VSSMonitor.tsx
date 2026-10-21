@@ -938,10 +938,20 @@ const VSSMonitor = () => {
           ? `${(histPage - 1) * perPage + 1}–${Math.min(histPage * perPage, histTotal)} dari ${histTotal} history`
           : '0 history kritis'
         : `${statsRows.length} event · ${stats.length} device · ${yearMonth}`;
+  
+  const overviewPieTotal = useMemo(() => {
+    if (!overview?.distribution) return 0;
+    const d = overview.distribution;
+    return (
+      (d['1s-5s'] || 0) +
+      (d['5s-1m'] || 0) +
+      (d['1m-5m'] || 0) +
+      (d['>5m'] || 0)
+    );
+  }, [overview]);
 
   return (
     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start', minHeight: '100%' }}>
-      {/* Sidebar */}
       <div
         style={{
           width: SIDEBAR_W,
@@ -1469,6 +1479,10 @@ const VSSMonitor = () => {
                       </h3>
                       <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
                         Ringkasan delay device · 00:00 – 23:59
+                        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4 }}>
+                          Total device = unit yang sempat ter-sample hari itu.
+                          Kartu & pie &quot;avg &gt; 3 detik&quot; = yang rata-rata delay-nya di atas 3 detik.
+                        </div>
                       </div>
                     </div>
 
@@ -1480,8 +1494,15 @@ const VSSMonitor = () => {
                         marginBottom: 12,
                       }}
                     >
-                      <StatCard label="Total device delay" value={String(overview.total_devices)} />
-                      <StatCard label="Delay > 5 detik" value={String(overview.delay_over_5_count)} />
+                      <StatCard
+                        label="Total device mengalami delay"
+                        value={String(overview.total_devices)}
+                      />
+                      <StatCard
+                        label="Total delay diatas 3 detik"
+                        value={String(overviewPieTotal)}
+                      />
+                      {/* <StatCard label="Delay > 5 detik" value={String(overview.delay_over_5_count)} /> */}
                       <StatCard label="Delay tertinggi" value={formatDelaySec(overview.max_delay_sec)} />
                       <StatCard label="Total event" value={String(overview.total_events)} />
                     </div>
@@ -1514,11 +1535,16 @@ const VSSMonitor = () => {
                           flexDirection: 'column',
                         }}
                       >
-                        <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 2 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b', marginBottom: 2 }}>
                           Distribusi Durasi Delay
                         </div>
-                        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 8 }}>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>
                           {overview.date}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8, lineHeight: 1.4 }}>
+                          Hanya device dengan <strong>rata-rata delay &gt; 3 detik</strong>
+                          {' '}({overviewPieTotal} dari {overview.total_devices} device).
+                          Angka di tengah pie = jumlah device tersebut, bukan total event.
                         </div>
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
                           <DelayCategoryPieChart
@@ -1529,7 +1555,7 @@ const VSSMonitor = () => {
                               '1m-5m': overview.distribution?.['1m-5m'] || 0,
                               '>5m': overview.distribution?.['>5m'] || 0,
                             }}
-                            total={overview.total_devices}
+                            total={overviewPieTotal}
                           />
                         </div>
                       </div>
@@ -1555,14 +1581,14 @@ const VSSMonitor = () => {
                             Top 10 delay tertinggi
                           </div>
                           <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                            Max delay · {overview.date}
+                            Avg delay · {overview.date}
                           </div>
                         </div>
                         <div style={{ overflow: 'visible' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                             <thead>
                               <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                                {['#', 'DEVICE', 'DEVICE ID', 'DELAY MAKS'].map((h) => (
+                                {['#', 'DEVICE', 'DEVICE ID', 'AVG DELAY'].map((h) => (
                                   <th key={h} style={{ ...thStyle, padding: '8px 10px', fontSize: 11 }}>
                                     {h}
                                   </th>
@@ -1571,7 +1597,7 @@ const VSSMonitor = () => {
                             </thead>
                             <tbody>
                               {(overview.top_devices || []).length === 0 ? (
-                                <EmptyRow colSpan={4} text="Tidak ada delay > 5 detik" />
+                                <EmptyRow colSpan={4} text="Tidak ada device dengan avg delay > 3 detik" />
                               ) : (
                                 overview.top_devices.map((d, idx) => (
                                   <tr
@@ -2425,7 +2451,7 @@ function DelayCategoryPieChart({
   dist: Record<DelayCategory, number>;
   total: number;
 }) {
-  const categories: DelayCategory[] = ['0s', '1s-5s', '5s-1m', '1m-5m', '>5m'];
+  const categories: DelayCategory[] = ['1s-5s', '5s-1m', '1m-5m', '>5m'];
   const size = 180;
   const cx = size / 2;
   const cy = size / 2;
@@ -2466,7 +2492,7 @@ function DelayCategoryPieChart({
           {total}
         </text>
         <text x={cx} y={cy + 14} textAnchor="middle" fontSize={10} fill="#94a3b8">
-          event
+          device
         </text>
       </svg>
 
