@@ -1355,7 +1355,7 @@ const VSSMonitor = () => {
                         <SortableTh label="DELAY" sortKey="delay_sec" sort={histSort} onSort={onHistSort} />
                         <SortableTh label="LAST SEEN" sortKey="detected_at" sort={histSort} onSort={onHistSort} />
                         <SortableTh label="DEVICE TIME" sortKey="dtu" sort={histSort} onSort={onHistSort} />
-                        <SortableTh label="SENT TO MIDDLEWARE AT" sortKey="report_time" sort={histSort} onSort={onHistSort} />
+                        {/* <SortableTh label="SENT TO MIDDLEWARE AT" sortKey="report_time" sort={histSort} onSort={onHistSort} /> */}
                       </tr>
                     </thead>
                     <tbody>
