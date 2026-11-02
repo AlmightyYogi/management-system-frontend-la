@@ -5,12 +5,14 @@ import api from '../../services/api';
 import useAuthStore from '../../store/authStore';
 import { ROLE_META } from '../../types/account';
 import resolveStorageUrl from '../../utils/storage';
+import { isGuestUser } from '../../utils/role';
 
 const AccountEdit = () => {
   const { uuid } = useParams<{ uuid: string }>();
   const navigate = useNavigate();
   const { user: currentUser } = useAuthStore();
   const isAdmin = currentUser?.role_id === 1;
+  const isGuest = isGuestUser(currentUser);
 
   const [account, setAccount] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -26,6 +28,16 @@ const AccountEdit = () => {
 
   const [image, setImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>('');
+
+  useEffect(() => {
+    if (isGuest) {
+      Swal.fire({
+        icon: 'warning',
+        title: 'Akses ditolak',
+        text: 'Role Guest tidak dapat mengedit akun',
+      }).then(() => navigate('/accounts'));
+    }
+  }, [isGuest, navigate]);
 
   useEffect(() => {
     api.get(`/accounts/${uuid}`)

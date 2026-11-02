@@ -6,6 +6,7 @@ import useAuthStore from '../../store/authStore';
 import type { Account } from '../../types/account';
 import { ROLE_STYLE, STATUS_STYLE } from '../../types/account';
 import resolveStorageUrl from '../../utils/storage';
+import { isGuestUser } from '../../utils/role';
 
 const ROLE_FILTER_TABS = ['All', 'Admin', 'Agent', 'User', 'Guest'] as const;
 type RoleTab = (typeof ROLE_FILTER_TABS)[number];
@@ -53,14 +54,22 @@ const AccountIndex = () => {
 
   useEffect(() => { fetchAccounts(); }, [fetchAccounts]);
 
-  const filtered = accounts.filter(a => {
+  const isGuest = isGuestUser(currentUser);
+
+  const filtered = accounts.filter((a) => {
+    if (isGuest) {
+      const roleName = String(a.role_name ?? '').toLowerCase();
+      const roleId = Number((a as any).role_id);
+      if (roleName !== 'guest' && roleId !== 4) return false;
+    }
+
     const q = search.toLowerCase();
     const matchSearch =
-      !q
-      || a.name.toLowerCase().includes(q)
-      || a.email.toLowerCase().includes(q)
-      || (a.username ?? '').toLowerCase().includes(q);
-    return matchSearch && roleTabMatch(a, activeTab);
+      !q ||
+      a.name.toLowerCase().includes(q) ||
+      a.email.toLowerCase().includes(q) ||
+      (a.username ?? '').toLowerCase().includes(q);
+    return matchSearch && (isGuest ? true : roleTabMatch(a, activeTab));
   });
 
   const total         = accounts.length;
@@ -91,17 +100,33 @@ const AccountIndex = () => {
             <h1 style={{ fontSize: 22, fontWeight: 700, color: '#111827', margin: '0 0 4px' }}>Manajemen Akun</h1>
             <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>{total} akun terdaftar</p>
           </div>
-          <Link
-            to="/accounts/create"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 6,
-              padding: '9px 18px', borderRadius: 8, border: 'none',
-              background: '#2563eb', color: '#fff', fontSize: 13,
-              fontWeight: 600, textDecoration: 'none',
-            }}
-          >
-            + Buat Akun Baru
-          </Link>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Link
+              to="/accounts/change-password"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '9px 16px', borderRadius: 8,
+                border: '1px solid #e5e7eb', background: '#fff',
+                color: '#374151', fontSize: 13, fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              Ubah Password
+            </Link>
+            {!isGuest && (
+              <Link
+                to="/accounts/create"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '9px 18px', borderRadius: 8, border: 'none',
+                  background: '#2563eb', color: '#fff', fontSize: 13,
+                  fontWeight: 600, textDecoration: 'none',
+                }}
+              >
+                + Buat Akun Baru
+              </Link>
+            )}
+          </div>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 20 }}>
@@ -215,10 +240,13 @@ const AccountIndex = () => {
                       <tr
                         key={account.uuid}
                         className="acc-row"
-                        onClick={() => navigate(`/accounts/${account.uuid}`)}
+                        onClick={() => {
+                          if (isGuest) return;
+                          navigate(`/accounts/${account.uuid}`);
+                        }}
                         style={{
                           borderBottom: '1px solid #f3f4f6',
-                          cursor: 'pointer',
+                          cursor: isGuest ? 'default' : 'pointer',
                           background: self ? '#fafbff' : idx % 2 === 0 ? '#fff' : '#fafafa',
                           animationDelay: `${Math.min(idx * 0.025, 0.3)}s`,
                         }}

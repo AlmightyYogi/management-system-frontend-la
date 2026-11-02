@@ -112,6 +112,31 @@ export type VSSDaySummary = {
   top_devices: VSSDaySummaryDevice[];
 };
 
+export type VSSDeviceDelayPoint = {
+  received_at: string;
+  dtu: string;
+  delay_sec: number;
+  action?: string;
+  reason?: string;
+};
+
+export type VSSDeviceDelayCategory = {
+  category: string;
+  count: number;
+};
+
+export type VSSDeviceDelayStats = {
+  device_id: string;
+  device_name: string;
+  range: string;
+  total_count: number;
+  max_delay_sec: number;
+  avg_delay_sec: number;
+  last_delay_sec: number;
+  last_received_at: string;
+  categories: VSSDeviceDelayCategory[];
+};
+
 export interface VSSDeviceLive {
   device_id: string;
   device_name: string;

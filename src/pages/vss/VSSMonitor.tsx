@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import api from '../../services/api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import html2canvas from 'html2canvas';
-import type { DeviceStatRow, VSSAlertHistory, VSSDelayEvent, VSSDeviceLive, VSSTrafficStats, VSSTrafficDetail, VSSMinuteTraffic, DelayCategory, VSSDaySummary } from '../../types/vss';
+import type { DeviceStatRow, VSSAlertHistory, VSSDelayEvent, VSSDeviceLive, VSSTrafficStats, VSSTrafficDetail, VSSMinuteTraffic, DelayCategory, VSSDaySummary, VSSDeviceDelayPoint, VSSDeviceDelayCategory, VSSDeviceDelayStats } from '../../types/vss';
 import { REASON_OPTIONS, REASON_STYLE, inputStyle, clearBtnStyle, btnOutline, btnPrimary, thStyle, tdStyle, TRAFFIC_COLORS, DELAY_CATEGORY_LABEL, DELAY_CATEGORY_COLOR } from '../../types/vss';
 
 const SIDEBAR_W = 240;
@@ -572,7 +572,12 @@ const VSSMonitor = () => {
   const [overviewLoading, setOverviewLoading] = useState(false);
 
   const [exportingExcel, setExportingExcel] = useState(false);
-  
+
+  const [detailDevice, setDetailDevice] = useState<VSSDeviceLive | null>(null);
+  const [detailRange, setDetailRange] = useState<'15m' | '1h' | '3h' | '6h' | '12h' | '24h'>('1h');
+  const [detailStats, setDetailStats] = useState<VSSDeviceDelayStats | null>(null);
+  const [detailHistory, setDetailHistory] = useState<VSSDeviceDelayPoint[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const perPage = 15;
 
@@ -607,6 +612,36 @@ const VSSMonitor = () => {
 
   const loadLive = useCallback(() => fetchLive(true), [fetchLive]);
   const loadLiveSoft = useCallback(() => fetchLive(false), [fetchLive]);
+
+  const loadDeviceDetail = useCallback(async () => {
+    if (!detailDevice?.device_id) return;
+    setDetailLoading(true);
+    try {
+      const id = encodeURIComponent(detailDevice.device_id);
+      const [stRes, hiRes] = await Promise.all([
+        api.get(`/vss/devices/${id}/stats?range=${detailRange}`),
+        api.get(`/vss/devices/${id}/history?range=${detailRange}`),
+      ]);
+      setDetailStats((stRes.data?.data ?? stRes.data) as VSSDeviceDelayStats);
+      const hi = hiRes.data?.data ?? hiRes.data;
+      setDetailHistory(Array.isArray(hi) ? (hi as VSSDeviceDelayPoint[]) : []);
+    } catch {
+      setDetailStats(null);
+      setDetailHistory([]);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, [detailDevice, detailRange]);
+
+  useEffect(() => {
+    if (detailDevice) loadDeviceDetail();
+  }, [detailDevice, detailRange, loadDeviceDetail]);
+
+  useEffect(() => {
+    if (!detailDevice) return;
+    const t = setInterval(() => loadDeviceDetail(), 5000);
+    return () => clearInterval(t);
+  }, [detailDevice, loadDeviceDetail]);
 
   const loadHistory = useCallback(async () => {
     setHistLoading(true);
@@ -1245,7 +1280,208 @@ const VSSMonitor = () => {
           }}
         >
           {tab === 'live' &&
-            (liveLoading ? (
+            (detailDevice ? (
+              <div style={{ padding: 16 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    marginBottom: 16,
+                    flexWrap: 'wrap',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setDetailDevice(null)}
+                    style={{ ...btnPrimary, background: '#2563eb' }}
+                  >
+                    ← Kembali ke daftar device
+                  </button>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 700, fontSize: 18, color: '#1e293b' }}>
+                      {detailDevice.device_name || detailDevice.device_id}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#94a3b8', fontFamily: 'monospace' }}>
+                      ID: {detailDevice.device_id}
+                    </div>
+                  </div>
+                  <label style={{ fontSize: 13, color: '#64748b' }}>
+                    Rentang waktu{' '}
+                    <select
+                      value={detailRange}
+                      onChange={(e) =>
+                        setDetailRange(e.target.value as typeof detailRange)
+                      }
+                      style={{ ...inputStyle, marginLeft: 8, width: 120 }}
+                    >
+                      <option value="15m">15 menit</option>
+                      <option value="1h">1 jam</option>
+                      <option value="3h">3 jam</option>
+                      <option value="6h">6 jam</option>
+                      <option value="12h">12 jam</option>
+                      <option value="24h">24 jam</option>
+                    </select>
+                  </label>
+                </div>
+
+                {detailLoading && !detailStats ? (
+                  <LoadingSpinner message="Memuat detail device..." />
+                ) : (
+                  <>
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                        gap: 12,
+                        marginBottom: 16,
+                      }}
+                    >
+                      <StatCard
+                        label="Delay terakhir"
+                        value={formatDelaySec(detailStats?.last_delay_sec)}
+                      />
+                      <StatCard
+                        label={`Delay maks (${detailRange})`}
+                        value={formatDelaySec(detailStats?.max_delay_sec)}
+                      />
+                      <StatCard
+                        label="Delay rata-rata"
+                        value={formatDelaySec(Math.round(detailStats?.avg_delay_sec || 0))}
+                      />
+                      <StatCard
+                        label="Total event"
+                        value={String(detailStats?.total_count ?? 0)}
+                      />
+                    </div>
+                    {detailStats?.last_received_at && (
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: -8, marginBottom: 16 }}>
+                        Terakhir sample: {formatDateTime(detailStats.last_received_at)}
+                      </div>
+                    )}
+
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(260px, 340px) 1fr',
+                        gap: 16,
+                        marginBottom: 16,
+                      }}
+                    >
+                      <div
+                        style={{
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 12,
+                          padding: 16,
+                          background: '#fff',
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 13 }}>
+                          Distribusi kategori delay
+                        </div>
+                        <DeviceDelayPie
+                          categories={detailStats?.categories || []}
+                          total={detailStats?.total_count || 0}
+                        />
+                      </div>
+                      <div
+                        style={{
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 12,
+                          padding: 16,
+                          background: '#fff',
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 13 }}>
+                          Riwayat delay
+                        </div>
+                        <DeviceDelayHistoryChart points={detailHistory} />
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 12,
+                        overflow: 'hidden',
+                        background: '#fff',
+                      }}
+                    >
+                      <div
+                        style={{
+                          padding: '12px 14px',
+                          borderBottom: '1px solid #e2e8f0',
+                          fontWeight: 600,
+                          fontSize: 13,
+                        }}
+                      >
+                        50 event terakhir
+                      </div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                          <thead>
+                            <tr style={{ background: '#f8fafc' }}>
+                              {['DITERIMA', 'DTU', 'DELAY', 'KATEGORI'].map((h) => (
+                                <th key={h} style={thStyle}>
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detailHistory.length === 0 ? (
+                              <EmptyRow colSpan={4} text="Belum ada event pada rentang ini" />
+                            ) : (
+                              [...detailHistory]
+                                .slice(-50)
+                                .reverse()
+                                .map((h, idx) => {
+                                  const sec = Math.abs(h.delay_sec || 0);
+                                  const cat = sec <= 5 ? '0-5s' : sec <= 60 ? '5s-1m' : '>1m';
+                                  const color = DEVICE_CAT_COLOR[cat];
+                                  return (
+                                    <tr
+                                      key={`${h.received_at}-${idx}`}
+                                      style={{ borderBottom: '1px solid #f1f5f9' }}
+                                    >
+                                      <td style={tdStyle}>{formatDateTime(h.received_at)}</td>
+                                      <td style={tdStyle}>{h.dtu || '—'}</td>
+                                      <td
+                                        style={{
+                                          ...tdStyle,
+                                          fontWeight: 600,
+                                          color: sec === 0 ? '#059669' : '#dc2626',
+                                        }}
+                                      >
+                                        {formatDelaySec(h.delay_sec)}
+                                      </td>
+                                      <td style={tdStyle}>
+                                        <span
+                                          style={{
+                                            display: 'inline-block',
+                                            padding: '2px 8px',
+                                            borderRadius: 12,
+                                            fontSize: 11,
+                                            fontWeight: 600,
+                                            background: `${color}22`,
+                                            color,
+                                          }}
+                                        >
+                                          {cat}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              ) : liveLoading ? (
               <LoadingSpinner message="Memuat live status..." />
             ) : (
               <>
@@ -1264,6 +1500,7 @@ const VSSMonitor = () => {
                         <SortableTh label="DEVICE TIME" sortKey="dtu" sort={liveSort} onSort={onLiveSort} />
                         <SortableTh label="SENT TO MIDDLEWARE AT" sortKey="report_time" sort={liveSort} onSort={onLiveSort} />
                         <SortableTh label="ACTION" sortKey="action" sort={liveSort} onSort={onLiveSort} />
+                        <th style={thStyle}>DETAIL</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1325,6 +1562,20 @@ const VSSMonitor = () => {
                                   {formatReportTime(r.report_time)}
                                 </td>
                                 <td style={tdStyle}>{r.action || '—'}</td>
+                                <td style={tdStyle}>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDetailDevice(r)}
+                                    style={{
+                                      ...btnPrimary,
+                                      padding: '6px 12px',
+                                      fontSize: 12,
+                                      borderRadius: 8,
+                                    }}
+                                  >
+                                    Detail
+                                  </button>
+                                </td>
                             </tr>
                             ))
                         )}
@@ -2671,6 +2922,156 @@ function DeviceDayHeatmap({ rows }: { rows: DeviceDayStat[] }) {
         <span>Banyak</span>
       </div>
     </div>
+  );
+}
+
+const DEVICE_CAT_COLOR: Record<string, string> = {
+  '0-5s': '#22c55e',
+  '5s-1m': '#f59e0b',
+  '>1m': '#ef4444',
+};
+
+function DeviceDelayPie({
+  categories,
+  total,
+}: {
+  categories: VSSDeviceDelayCategory[];
+  total: number;
+}) {
+  const size = 180;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = 70;
+  let angle = -Math.PI / 2;
+  const order = ['0-5s', '5s-1m', '>1m'];
+  const slices = order
+    .map((cat) => {
+      const n = categories.find((c) => c.category === cat)?.count || 0;
+      const portion = total > 0 ? n / total : 0;
+      const start = angle;
+      const end = angle + portion * Math.PI * 2;
+      angle = end;
+      const x1 = cx + r * Math.cos(start);
+      const y1 = cy + r * Math.sin(start);
+      const x2 = cx + r * Math.cos(end);
+      const y2 = cy + r * Math.sin(end);
+      const large = portion > 0.5 ? 1 : 0;
+      const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+      return { cat, n, d, color: DEVICE_CAT_COLOR[cat], portion };
+    })
+    .filter((s) => s.n > 0);
+
+  return (
+    <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {slices.length === 0 ? (
+          <circle cx={cx} cy={cy} r={r} fill="#e2e8f0" />
+        ) : slices.length === 1 ? (
+          <circle cx={cx} cy={cy} r={r} fill={slices[0].color} />
+        ) : (
+          slices.map((s) => (
+            <path key={s.cat} d={s.d} fill={s.color} stroke="#fff" strokeWidth={2} />
+          ))
+        )}
+        <circle cx={cx} cy={cy} r={38} fill="#fff" />
+        <text x={cx} y={cy - 4} textAnchor="middle" fontSize={14} fontWeight={700} fill="#1e293b">
+          {total}
+        </text>
+        <text x={cx} y={cy + 14} textAnchor="middle" fontSize={10} fill="#94a3b8">
+          event
+        </text>
+      </svg>
+      <div>
+        {order.map((cat) => {
+          const n = categories.find((c) => c.category === cat)?.count || 0;
+          const pct = total > 0 ? Math.round((n / total) * 1000) / 10 : 0;
+          return (
+            <div
+              key={cat}
+              style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 12, marginBottom: 6 }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 3,
+                  background: DEVICE_CAT_COLOR[cat],
+                }}
+              />
+              <span style={{ flex: 1, color: '#475569' }}>{cat}</span>
+              <strong>{n}</strong>
+              <span style={{ color: '#94a3b8', width: 40, textAlign: 'right' }}>{pct}%</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DeviceDelayHistoryChart({ points }: { points: VSSDeviceDelayPoint[] }) {
+  const w = 720;
+  const h = 220;
+  const pad = { t: 20, r: 16, b: 32, l: 48 };
+  const innerW = w - pad.l - pad.r;
+  const innerH = h - pad.t - pad.b;
+
+  if (!points.length) {
+    return (
+      <div style={{ color: '#94a3b8', fontSize: 13, padding: 24, textAlign: 'center' }}>
+        Belum ada sample delay pada rentang ini
+      </div>
+    );
+  }
+
+  const ys = points.map((p) => Math.abs(p.delay_sec || 0));
+  const maxY = Math.max(1, ...ys);
+  const x = (i: number) =>
+    pad.l + (points.length <= 1 ? innerW / 2 : (i / (points.length - 1)) * innerW);
+  const y = (v: number) => pad.t + innerH - (v / maxY) * innerH;
+  const d = points
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(Math.abs(p.delay_sec || 0))}`)
+    .join(' ');
+
+  return (
+    <svg width="100%" viewBox={`0 0 ${w} ${h}`} style={{ maxHeight: 240 }}>
+      {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+        const yy = pad.t + innerH * (1 - t);
+        return <line key={t} x1={pad.l} x2={w - pad.r} y1={yy} y2={yy} stroke="#e2e8f0" />;
+      })}
+      <path d={d} fill="none" stroke="#94a3b8" strokeWidth={2} />
+      {points.map((p, i) => {
+        const sec = Math.abs(p.delay_sec || 0);
+        const color = sec <= 5 ? '#22c55e' : sec <= 60 ? '#f59e0b' : '#ef4444';
+        return (
+          <circle
+            key={i}
+            cx={x(i)}
+            cy={y(sec)}
+            r={points.length > 80 ? 2 : 3.5}
+            fill={color}
+          />
+        );
+      })}
+      {points.map((p, i) => {
+        if (i !== 0 && i !== points.length - 1 && i % Math.ceil(points.length / 6) !== 0) {
+          return null;
+        }
+        const t = p.received_at ? new Date(p.received_at) : null;
+        const label =
+          t && !Number.isNaN(t.getTime())
+            ? `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}`
+            : '';
+        return (
+          <text key={`t-${i}`} x={x(i)} y={h - 10} textAnchor="middle" fontSize={9} fill="#94a3b8">
+            {label}
+          </text>
+        );
+      })}
+      <text x={pad.l} y={14} fontSize={10} fill="#94a3b8">
+        max {formatDelaySec(maxY)}
+      </text>
+    </svg>
   );
 }
 

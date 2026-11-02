@@ -19,6 +19,7 @@ import AccountCreate from './pages/account/AccountCreate';
 import AccountEdit from './pages/account/AccountEdit';
 
 import VSSMonitor from './pages/vss/VSSMonitor';
+import ChangePassword from './pages/account/ChangePassword';
 
 function isGuestUser(user: any): boolean {
   if (!user) return false;
@@ -61,6 +62,7 @@ function App() {
                 <Route path="/accounts" element={<AccountIndex />} />
                 <Route path="/accounts/create" element={<AccountCreate />} />
                 <Route path="/accounts/:uuid" element={<AccountEdit />} />
+                <Route path="/accounts/change-password" element={<ChangePassword />} />
 
                 <Route path="/daily" element={<ReportDaily />} />
               </Route>
