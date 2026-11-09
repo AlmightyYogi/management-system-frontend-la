@@ -7,6 +7,8 @@ export interface User {
   image: string;
   is_admin: boolean;
   is_viewer: boolean;
+  role_name: string;
+  role: number;
 }
 
 export interface LoginRequest {

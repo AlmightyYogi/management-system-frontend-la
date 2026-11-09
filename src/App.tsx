@@ -28,6 +28,21 @@ function isGuestUser(user: any): boolean {
   return Number(user.role_id) === 4;
 }
 
+function isViewerUser(user: any): boolean {
+  if (!user) return false;
+  const name = String(user.role_name ?? user.role ?? '').toLowerCase();
+  if (name === 'viewer') return true;
+  return Number(user.role_id) === 2;
+}
+
+function ViewerWriteGuard({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((s) => s.user);
+  if (isViewerUser(user)) {
+    return <Navigate to="/reports" replace />;
+  }
+  return <>{children}</>;
+}
+
 function HomeRedirect() {
   const user = useAuthStore((s) => s.user);
   if (isGuestUser(user)) {
@@ -55,9 +70,24 @@ function App() {
                 <Route path="/dashboard" element={<Dashboard />} />
 
                 <Route path="/reports" element={<ReportIndex />} />
-                <Route path="/reports/create" element={<ReportCreate />} />
                 <Route path="/reports/:uuid" element={<ReportShow />} />
-                <Route path="/reports/:uuid/edit" element={<ReportEdit />} />
+
+                <Route
+                  path="/reports/create"
+                  element={
+                    <ViewerWriteGuard>
+                      <ReportCreate />
+                    </ViewerWriteGuard>
+                  }
+                />
+                <Route
+                  path="/reports/:uuid/edit"
+                  element={
+                    <ViewerWriteGuard>
+                      <ReportEdit />
+                    </ViewerWriteGuard>
+                  }
+                />
 
                 <Route path="/accounts" element={<AccountIndex />} />
                 <Route path="/accounts/create" element={<AccountCreate />} />

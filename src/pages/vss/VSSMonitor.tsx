@@ -821,9 +821,16 @@ const VSSMonitor = () => {
     if (tab !== 'live') return;
     const id = setInterval(() => {
         loadLiveSoft();
-    }, 3_000);
+    }, 1_000);
     return () => clearInterval(id);
     }, [tab, loadLiveSoft]);
+
+    const [, setTick] = useState(0);
+    useEffect(() => {
+      if (tab !== 'live') return;
+      const id = setInterval(() => setTick((n) => n + 1), 1000);
+      return () => clearInterval(id);
+    }, [tab]);
 
   useEffect(() => {
     setLivePage(1);

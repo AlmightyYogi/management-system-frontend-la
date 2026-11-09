@@ -119,7 +119,10 @@ const ReportIndex = () => {
   }, [search, startDate, endDate, page, perPage]);
 
   const { user } = useAuthStore();
-    const isAdmin = user?.role_id === 1;
+  const isAdmin = user?.role_id === 1
+    || String(user?.role_name ?? user?.role ?? '').toLowerCase() === 'admin';
+  const isViewer = user?.role_id === 2
+    || String(user?.role_name ?? user?.role ?? '').toLowerCase() === 'viewer';
 
     const handleDelete = async (e: React.MouseEvent, report: Report) => {
       e.stopPropagation();
@@ -404,12 +407,14 @@ const ReportIndex = () => {
             <button onClick={handleExport} style={btnOutline} disabled={exporting}>
               <i className="bi bi-file-earmark-excel me-1" style={{ color: '#16a34a' }} /> Export
             </button>
-            <Link to="/reports/create" style={{
-              ...btnPrimary,
-              textDecoration: 'none', display: 'inline-flex', alignItems: 'center',
-            }}>
-              <i className="bi bi-plus-lg me-1" /> New Ticket
-            </Link>
+            {!isViewer && (
+              <Link to="/reports/create" style={{
+                ...btnPrimary,
+                textDecoration: 'none', display: 'inline-flex', alignItems: 'center',
+              }}>
+                <i className="bi bi-plus-lg me-1" /> New Ticket
+              </Link>
+            )}
           </div>
         </div>
 
@@ -565,25 +570,25 @@ const ReportIndex = () => {
                           style={{ padding: '13px 14px', whiteSpace: 'nowrap' }}
                           onClick={e => e.stopPropagation()}
                         >
-                          {isAdmin && (
-                              <button
-                                type="button"
-                                title="Delete ticket"
-                                onClick={e => handleDelete(e, r)}
-                                style={{
-                                  background: 'none',
-                                  border: 'none',
-                                  cursor: 'pointer',
-                                  color: '#df1f1f',
-                                  padding: '4px 6px',
-                                  borderRadius: 6,
-                                }}
-                                onMouseEnter={e => (e.currentTarget.style.color = '#dc2626')}
-                                onMouseLeave={e => (e.currentTarget.style.color = '#94a3b8')}
-                              >
-                                <i className="bi bi-trash3" />
-                              </button>
-                            )}
+                          {isAdmin && !isViewer && (
+                            <button
+                              type="button"
+                              title="Delete ticket"
+                              onClick={e => handleDelete(e, r)}
+                              style={{
+                                background: 'none',
+                                border: 'none',
+                                cursor: 'pointer',
+                                color: '#df1f1f',
+                                padding: '4px 6px',
+                                borderRadius: 6,
+                              }}
+                              onMouseEnter={e => (e.currentTarget.style.color = '#dc2626')}
+                              onMouseLeave={e => (e.currentTarget.style.color = '#94a3b8')}
+                            >
+                              <i className="bi bi-trash3" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );

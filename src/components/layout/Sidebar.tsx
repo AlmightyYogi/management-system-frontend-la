@@ -194,7 +194,6 @@ const Sidebar = () => {
         </ul>
       </nav>
 
-      {/* ===== Footer: user + collapse (tidak nutup menu) ===== */}
       <div
         style={{
           flexShrink: 0,
@@ -279,7 +278,6 @@ const Sidebar = () => {
           )}
         </div>
 
-        {/* Toggle collapse — di bawah, tidak menimpa item menu */}
         <button
           type="button"
           onClick={toggleSidebar}

@@ -198,45 +198,6 @@ function formatTimestamp(date: Date): string {
   });
 }
 
-// const BACKEND_ORIGIN_FALLBACK = 'http://localhost:8080';
-// const IMAGE_PATH_PREFIX = '/storage';
-
-// function resolveImageUrl(path?: string | null): string | undefined {
-//   if (!path) return undefined;
-//   if (/^https?:\/\//i.test(path)) return path;
-
-//   const apiBaseUrl: string =
-//     (api as any)?.defaults?.baseURL ||
-//     (import.meta as any)?.env?.VITE_API_URL ||
-//     (import.meta as any)?.env?.VITE_API_BASE_URL ||
-//     '';
-
-//   let storageBase = apiBaseUrl.replace(/\/api\/?$/, '').replace(/\/$/, '');
-
-//   if (!storageBase || storageBase.includes('5173') || storageBase.includes('localhost:5173')) {
-//     storageBase = BACKEND_ORIGIN_FALLBACK;
-//   }
-
-//   let cleanPath = path.startsWith('/') ? path : `/${path}`;
-
-//   const alreadyPrefixed =
-//     cleanPath.startsWith(IMAGE_PATH_PREFIX) ||
-//     cleanPath.startsWith('/storage') ||
-//     cleanPath.startsWith('/uploads');
-
-//   if (!alreadyPrefixed) {
-//     cleanPath = `${IMAGE_PATH_PREFIX}${cleanPath}`;
-//   }
-
-//   const resolved = `${storageBase}${cleanPath}`;
-
-//   if (import.meta?.env?.DEV) {
-//     console.debug('[resolveImageUrl]', { input: path, apiBaseUrl, storageBase, cleanPath, resolved });
-//   }
-
-//   return resolved;
-// }
-
 function Avatar({ name, size = 36, image }: { name: string; size?: number; image?: string }) {
   const color = colorForName(name);
   const initials = getInitials(name);
@@ -781,7 +742,10 @@ const ReportShow = () => {
     return 'User';
   })();
 
-  const isAdmin = authUser?.role_id === 1;
+  const isAdmin = authUser?.role_id === 1
+    || String(authUser?.role_name ?? '').toLowerCase() === 'admin';
+  const isViewer = authUser?.role_id === 2
+    || String(authUser?.role_name ?? '').toLowerCase() === 'viewer';
   const currentUserId: string | number | undefined = (authUser as any)?.uuid ?? (authUser as any)?.id;
 
   const [elapsed, setElapsed] = useState('');
@@ -1041,18 +1005,20 @@ const ReportShow = () => {
               {report.incident}
             </h1>
             <div style={{ display: 'flex', gap: 8, flexShrink: 0, position: 'relative' }} ref={actionsMenuRef}>
-              <Link
-                to={`/reports/${uuid}/edit`}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '7px 14px', borderRadius: 7,
-                  border: '1px solid #e5e7eb', background: '#fff',
-                  color: '#374151', fontSize: 13, fontWeight: 500,
-                  textDecoration: 'none',
-                }}
-              >
-                ✏️ Edit
-              </Link>
+              {!isViewer && (
+                <Link
+                  to={`/reports/${uuid}/edit`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    padding: '7px 14px', borderRadius: 7,
+                    border: '1px solid #e5e7eb', background: '#fff',
+                    color: '#374151', fontSize: 13, fontWeight: 500,
+                    textDecoration: 'none',
+                  }}
+                >
+                  ✏️ Edit
+                </Link>
+              )}
               <button
                 onClick={() => setShowActionsMenu(v => !v)}
                 style={{
@@ -1285,72 +1251,74 @@ const ReportShow = () => {
                 <div ref={chatEndRef} />
               </div>
 
-              <div style={{ padding: '0 20px 20px' }}>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                  <Avatar name={currentUserName} size={36} image={currentUserImage} />
-                  <div style={{ flex: 1 }}>
-                    <textarea
-                      value={commentText}
-                      onChange={(e) => setCommentText(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder="Tambahkan komentar atau update..."
-                      rows={3}
-                      style={{
-                        width: '100%',
-                        padding: '10px 14px',
-                        border: '1px solid #e5e7eb',
-                        borderRadius: 8,
-                        fontSize: 13,
-                        color: '#374151',
-                        resize: 'vertical',
-                        outline: 'none',
-                        fontFamily: 'inherit',
-                        boxSizing: 'border-box',
-                        background: '#fff',
-                        transition: 'border-color 0.15s',
-                      }}
-                      onFocus={(e) => (e.target.style.borderColor = '#2563eb')}
-                      onBlur={(e) => (e.target.style.borderColor = '#e5e7eb')}
-                    />
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
-                        <input
-                          type="checkbox"
-                          checked={isInternal}
-                          onChange={(e) => setIsInternal(e.target.checked)}
-                          style={{ width: 14, height: 14, accentColor: '#f59e0b', cursor: 'pointer' }}
-                        />
-                        <span style={{ fontSize: 12, color: '#6b7280' }}>⚠ Internal note (hanya tim IT)</span>
-                      </label>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <button style={{
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          color: '#9ca3af', fontSize: 16, padding: '4px',
-                        }} title="Attach file">
-                          📎
-                        </button>
-                        <button
-                          onClick={handleSendComment}
-                          disabled={!commentText.trim() || sending}
-                          style={{
-                            padding: '7px 18px',
-                            background: commentText.trim() && !sending ? '#2563eb' : '#e5e7eb',
-                            color: commentText.trim() && !sending ? '#fff' : '#9ca3af',
-                            border: 'none',
-                            borderRadius: 7,
-                            fontSize: 13,
-                            fontWeight: 500,
-                            cursor: commentText.trim() && !sending ? 'pointer' : 'default',
-                            transition: 'background 0.15s',
-                          }}
-                        >
-                          {sending ? 'Mengirim...' : 'Kirim'}
-                        </button>
+              {!isViewer && (
+                <div style={{ padding: '0 20px 20px' }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <Avatar name={currentUserName} size={36} image={currentUserImage} />
+                    <div style={{ flex: 1 }}>
+                      <textarea
+                        value={commentText}
+                        onChange={(e) => setCommentText(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder="Tambahkan komentar atau update..."
+                        rows={3}
+                        style={{
+                          width: '100%',
+                          padding: '10px 14px',
+                          border: '1px solid #e5e7eb',
+                          borderRadius: 8,
+                          fontSize: 13,
+                          color: '#374151',
+                          resize: 'vertical',
+                          outline: 'none',
+                          fontFamily: 'inherit',
+                          boxSizing: 'border-box',
+                          background: '#fff',
+                          transition: 'border-color 0.15s',
+                        }}
+                        onFocus={(e) => (e.target.style.borderColor = '#2563eb')}
+                        onBlur={(e) => (e.target.style.borderColor = '#e5e7eb')}
+                      />
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
+                          <input
+                            type="checkbox"
+                            checked={isInternal}
+                            onChange={(e) => setIsInternal(e.target.checked)}
+                            style={{ width: 14, height: 14, accentColor: '#f59e0b', cursor: 'pointer' }}
+                          />
+                          <span style={{ fontSize: 12, color: '#6b7280' }}>⚠ Internal note (hanya tim IT)</span>
+                        </label>
+                        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                          <button style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            color: '#9ca3af', fontSize: 16, padding: '4px',
+                          }} title="Attach file">
+                            📎
+                          </button>
+                          <button
+                            onClick={handleSendComment}
+                            disabled={!commentText.trim() || sending}
+                            style={{
+                              padding: '7px 18px',
+                              background: commentText.trim() && !sending ? '#2563eb' : '#e5e7eb',
+                              color: commentText.trim() && !sending ? '#fff' : '#9ca3af',
+                              border: 'none',
+                              borderRadius: 7,
+                              fontSize: 13,
+                              fontWeight: 500,
+                              cursor: commentText.trim() && !sending ? 'pointer' : 'default',
+                              transition: 'background 0.15s',
+                            }}
+                          >
+                            {sending ? 'Mengirim...' : 'Kirim'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
