@@ -29,10 +29,13 @@ function filterTrafficSeries(
   const n = series.length;
 
   if (range === 'custom' && fromStr && toStr) {
-    const fromT = fromStr.slice(11, 16);
-    const toT = toStr.slice(11, 16);
+    const fromT = fromStr.includes('T') ? fromStr.slice(11, 16) : fromStr.slice(0, 5);
+    const toT = toStr.includes('T') ? toStr.slice(11, 16) : toStr.slice(0, 5);
     if (fromT && toT) {
-      return series.filter((p) => p.minute >= fromT && p.minute <= toT);
+      if (fromT <= toT) {
+        return series.filter((p) => p.minute >= fromT && p.minute <= toT);
+      }
+      return series.filter((p) => p.minute >= fromT || p.minute <= toT);
     }
     return series;
   }
@@ -298,15 +301,22 @@ function TrafficPerMinuteChart({
 }) {
   const points = useMemo(() => {
     const pts = [...(series || [])];
-    if (current?.minute) pts.push(current);
+    if (current?.minute) {
+      const last = pts[pts.length - 1];
+      if (!last || last.minute !== current.minute) {
+        pts.push(current);
+      } else {
+        pts[pts.length - 1] = current;
+      }
+    }
     return pts;
   }, [series, current]);
 
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
-  const w = 720;
-  const h = 220;
-  const pad = { t: 20, r: 16, b: 32, l: 44 };
+  const w = 900;
+  const h = 340;
+  const pad = { t: 28, r: 20, b: 40, l: 56 };
   const innerW = w - pad.l - pad.r;
   const innerH = h - pad.t - pad.b;
 
@@ -317,16 +327,26 @@ function TrafficPerMinuteChart({
     }
     maxY = Math.max(maxY, p.total || 0);
   }
+  const niceMax = (() => {
+    if (maxY <= 10) return 10;
+    const mag = Math.pow(10, Math.floor(Math.log10(maxY)));
+    const n = Math.ceil(maxY / mag);
+    return n * mag;
+  })();
 
   const x = (i: number) =>
     pad.l + (points.length <= 1 ? innerW / 2 : (i / (points.length - 1)) * innerW);
-  const y = (v: number) => pad.t + innerH - (v / maxY) * innerH;
+  const y = (v: number) => pad.t + innerH - (v / niceMax) * innerH;
 
   const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
     if (points.length === 0) return;
     const svg = e.currentTarget;
     const rect = svg.getBoundingClientRect();
     const mx = ((e.clientX - rect.left) / rect.width) * w;
+    if (mx < pad.l - 8 || mx > w - pad.r + 8) {
+      setHoverIdx(null);
+      return;
+    }
     let best = 0;
     let bestDist = Infinity;
     for (let i = 0; i < points.length; i++) {
@@ -336,16 +356,12 @@ function TrafficPerMinuteChart({
         best = i;
       }
     }
-    if (mx < pad.l - 8 || mx > w - pad.r + 8) {
-      setHoverIdx(null);
-      return;
-    }
     setHoverIdx(best);
   };
 
   if (points.length === 0) {
     return (
-      <div style={{ color: '#94a3b8', fontSize: 13, padding: 24, textAlign: 'center' }}>
+      <div style={{ color: '#94a3b8', fontSize: 13, padding: 32, textAlign: 'center' }}>
         Menunggu traffic menit pertama…
       </div>
     );
@@ -354,29 +370,78 @@ function TrafficPerMinuteChart({
   const tip = hoverIdx != null ? points[hoverIdx] : null;
   const tipX = tip ? x(hoverIdx!) : 0;
 
+  const xTickEvery = Math.max(1, Math.ceil(points.length / 10));
+
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
+
+  const primaryAction = actions.includes('80003') ? '80003' : actions[0];
+  const areaPath = (() => {
+    if (!primaryAction || points.length === 0) return '';
+    const line = points
+      .map((p, i) => {
+        const v = p.counts?.[primaryAction] || 0;
+        return `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(v)}`;
+      })
+      .join(' ');
+    const lastX = x(points.length - 1);
+    const firstX = x(0);
+    const base = y(0);
+    return `${line} L ${lastX} ${base} L ${firstX} ${base} Z`;
+  })();
+
   return (
-    <div style={{ position: 'relative' }}>
+    <div style={{ position: 'relative', width: '100%' }}>
       <svg
         width="100%"
         viewBox={`0 0 ${w} ${h}`}
-        style={{ maxHeight: 240, cursor: 'crosshair' }}
+        style={{ maxHeight: 380, display: 'block' }}
         onMouseMove={onMove}
         onMouseLeave={() => setHoverIdx(null)}
       >
-        {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+        <rect
+          x={pad.l}
+          y={pad.t}
+          width={innerW}
+          height={innerH}
+          fill="#fafbfc"
+          stroke="#e2e8f0"
+          strokeWidth={1}
+          rx={4}
+        />
+
+        {yTicks.map((t) => {
           const yy = pad.t + innerH * (1 - t);
+          const val = Math.round(niceMax * t);
           return (
-            <line
-              key={t}
-              x1={pad.l}
-              x2={w - pad.r}
-              y1={yy}
-              y2={yy}
-              stroke="#e2e8f0"
-              strokeWidth={1}
-            />
+            <g key={t}>
+              <line
+                x1={pad.l}
+                x2={w - pad.r}
+                y1={yy}
+                y2={yy}
+                stroke="#e2e8f0"
+                strokeWidth={1}
+              />
+              <text
+                x={pad.l - 8}
+                y={yy + 4}
+                textAnchor="end"
+                fontSize={11}
+                fill="#94a3b8"
+              >
+                {val >= 1000 ? `${(val / 1000).toFixed(val % 1000 === 0 ? 0 : 1)}k` : val}
+              </text>
+            </g>
           );
         })}
+
+        {primaryAction && (
+          <path
+            d={areaPath}
+            fill={TRAFFIC_COLORS[primaryAction] || '#22c55e'}
+            opacity={0.12}
+          />
+        )}
 
         {actions.map((action) => {
           const d = points
@@ -385,13 +450,17 @@ function TrafficPerMinuteChart({
               return `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(v)}`;
             })
             .join(' ');
+          const hasData = points.some((p) => (p.counts?.[action] || 0) > 0);
+          if (!hasData && action !== primaryAction) return null;
           return (
             <path
               key={action}
               d={d}
               fill="none"
               stroke={TRAFFIC_COLORS[action] || '#64748b'}
-              strokeWidth={2}
+              strokeWidth={action === primaryAction ? 2.5 : 1.75}
+              strokeLinejoin="round"
+              strokeLinecap="round"
             />
           );
         })}
@@ -409,16 +478,16 @@ function TrafficPerMinuteChart({
             />
             {actions.map((a) => {
               const v = tip.counts?.[a] || 0;
-              if (v <= 0 && actions.length > 1) return null;
+              if (v <= 0 && a !== primaryAction) return null;
               return (
                 <circle
                   key={a}
                   cx={tipX}
                   cy={y(v)}
-                  r={4}
+                  r={4.5}
                   fill={TRAFFIC_COLORS[a] || '#64748b'}
                   stroke="#fff"
-                  strokeWidth={1.5}
+                  strokeWidth={2}
                 />
               );
             })}
@@ -426,46 +495,51 @@ function TrafficPerMinuteChart({
         )}
 
         {points.map((p, i) => {
-          if (i !== 0 && i !== points.length - 1 && i % Math.ceil(points.length / 8) !== 0) {
+          if (i !== 0 && i !== points.length - 1 && i % xTickEvery !== 0) {
             return null;
           }
           return (
             <text
-              key={p.minute + i}
+              key={`${p.minute}-${i}`}
               x={x(i)}
-              y={h - 10}
+              y={h - 14}
               textAnchor="middle"
-              fontSize={9}
-              fill="#94a3b8"
+              fontSize={11}
+              fill="#64748b"
             >
               {p.minute}
             </text>
           );
         })}
-        <text x={pad.l} y={14} fontSize={10} fill="#94a3b8">
-          max {maxY.toLocaleString()}/menit
-        </text>
       </svg>
 
       {tip && hoverIdx != null && (
         <div
           style={{
             position: 'absolute',
-            left: `clamp(8px, ${(tipX / w) * 100}% , calc(100% - 180px))`,
-            top: 28,
+            left: `clamp(12px, ${(tipX / w) * 100}%, calc(100% - 200px))`,
+            top: 36,
             transform: 'translateX(-50%)',
-            background: '#1e293b',
+            background: '#0f172a',
             color: '#f8fafc',
-            borderRadius: 8,
-            padding: '8px 12px',
+            borderRadius: 10,
+            padding: '10px 14px',
             fontSize: 12,
-            boxShadow: '0 4px 12px rgba(0,0,0,.2)',
+            boxShadow: '0 8px 24px rgba(0,0,0,.25)',
             pointerEvents: 'none',
             zIndex: 5,
-            minWidth: 140,
+            minWidth: 160,
           }}
         >
-          <div style={{ fontWeight: 600, marginBottom: 6, borderBottom: '1px solid #334155', paddingBottom: 4 }}>
+          <div
+            style={{
+              fontWeight: 700,
+              marginBottom: 8,
+              borderBottom: '1px solid #334155',
+              paddingBottom: 6,
+              fontSize: 13,
+            }}
+          >
             {tip.minute}
           </div>
           {actions.map((a) => {
@@ -477,7 +551,7 @@ function TrafficPerMinuteChart({
                   display: 'flex',
                   alignItems: 'center',
                   gap: 8,
-                  marginBottom: 3,
+                  marginBottom: 4,
                 }}
               >
                 <span
@@ -496,8 +570,8 @@ function TrafficPerMinuteChart({
           })}
           <div
             style={{
-              marginTop: 4,
-              paddingTop: 4,
+              marginTop: 6,
+              paddingTop: 6,
               borderTop: '1px solid #334155',
               display: 'flex',
               justifyContent: 'space-between',
@@ -512,12 +586,21 @@ function TrafficPerMinuteChart({
         </div>
       )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: 12 }}>
+      <div
+        style={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          gap: 14,
+          marginTop: 12,
+          fontSize: 12,
+          color: '#475569',
+        }}
+      >
         {actions.map((a) => (
           <span key={a} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <span
               style={{
-                width: 10,
+                width: 14,
                 height: 3,
                 borderRadius: 2,
                 background: TRAFFIC_COLORS[a] || '#64748b',
@@ -1639,27 +1722,30 @@ const VSSMonitor = () => {
                             <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
                               {r.device_id}
                             </td>
+
                             <td
                               style={{
                                 ...tdStyle,
                                 fontVariantNumeric: 'tabular-nums',
                                 fontWeight: 600,
-                                color: (() => {
-                                  const a = ageSecFromISO(r.detected_at) ?? 0;
-                                  return a === 0 ? '#059669' : '#dc2626';
-                                })(),
+                                color: (r.delay_sec ?? 0) === 0 ? '#059669' : '#dc2626',
                                 whiteSpace: 'nowrap',
                               }}
-                              title={r.detected_at ? formatDateTime(r.detected_at) : undefined}
+                              title={
+                                r.delay_sec != null
+                                  ? `delay_sec tersimpan: ${r.delay_sec}s (tidak dihitung ulang)`
+                                  : undefined
+                              }
                             >
-                              {formatAgeSec(r.detected_at)}
+                              {formatDelaySec(r.delay_sec)}
                             </td>
-                            {/* <td style={{ ...tdStyle, fontWeight: 500, color: '#1e293b' }}>
-                              {r.action || '—'}
-                            </td> */}
-                            <td style={tdStyle}>{r.dtu || '—'}</td>
-                            <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>
-                              {formatReportTime(r.report_time)}
+
+                            <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                              {formatDateTime(r.detected_at)}
+                            </td>
+
+                            <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                              {r.dtu || '—'}
                             </td>
                           </tr>
                         ))
@@ -2141,51 +2227,42 @@ const VSSMonitor = () => {
                 <>
                   <div
                     style={{
-                      border: '1px solid #e2e8f0',
-                      borderRadius: 12,
-                      padding: 16,
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                      gap: 12,
                       marginBottom: 16,
-                      background: '#fff',
-                      fontSize: 13,
-                      color: '#334155',
-                      lineHeight: 1.6,
                     }}
                   >
-                    <div style={{ fontWeight: 600, marginBottom: 6 }}>Traffic per Action</div>
-                    <div>
-                      Total sejak server nyala:{' '}
-                      {Object.entries(trafficDetail.totals || {})
-                        .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([k, v]) => `${k}: ${v.toLocaleString()}`)
-                        .join(' | ') || '—'}
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 18px', background: '#fff' }}>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Total sejak server start</div>
+                      <div style={{ fontSize: 28, fontWeight: 700, color: '#0f172a' }}>
+                        {(trafficDetail.total_messages || 0).toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>reset saat server restart</div>
                     </div>
-                    <div>
-                      Total traffic keseluruhan:{' '}
-                      <strong>{(trafficDetail.total_messages || 0).toLocaleString()}</strong>
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 18px', background: '#fff' }}>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>
+                        Menit berjalan ({trafficDetail.current_minute?.minute || '—'})
+                      </div>
+                      <div style={{ fontSize: 28, fontWeight: 700, color: '#0f172a' }}>
+                        {(trafficDetail.current_minute?.total || 0).toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                        {(trafficDetail.tracked_actions || ['80003', '80004'])
+                          .map((a) => `${a}: ${(trafficDetail.current_minute?.counts?.[a] || 0).toLocaleString()}`)
+                          .join(' · ')}
+                      </div>
                     </div>
-                    <div>
-                      Traffic menit berjalan ({trafficDetail.current_minute?.minute || '—'}):{' '}
-                      <strong>{(trafficDetail.current_minute?.total || 0).toLocaleString()}</strong>
-                      {' total ('}
-                      {(trafficDetail.tracked_actions || ['80003', '80004', '80005', '80007', '80030'])
-                        .map(
-                          (a) =>
-                            `${a}: ${(trafficDetail.current_minute?.counts?.[a] || 0).toLocaleString()}`
-                        )
-                        .join(', ')}
-                      {')'}
+                    <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: '16px 18px', background: '#fff' }}>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>Action aktif</div>
+                      <div style={{ fontSize: 28, fontWeight: 700, color: '#0f172a' }}>
+                        {(trafficDetail.tracked_actions || []).length}
+                      </div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>kode action di WS</div>
                     </div>
                   </div>
 
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 8,
-                      alignItems: 'center',
-                      marginBottom: 12,
-                    }}
-                  >
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginBottom: 12 }}>
                     {(
                       [
                         { id: '15m' as TrafficRange, label: 'Last 15m' },
@@ -2202,8 +2279,8 @@ const VSSMonitor = () => {
                         type="button"
                         onClick={() => setTrafficRange(r.id)}
                         style={{
-                          padding: '6px 12px',
-                          borderRadius: 7,
+                          padding: '7px 14px',
+                          borderRadius: 8,
                           border: `1px solid ${trafficRange === r.id ? '#6366f1' : '#e2e8f0'}`,
                           background: trafficRange === r.id ? '#6366f1' : '#fff',
                           color: trafficRange === r.id ? '#fff' : '#374151',
@@ -2218,16 +2295,7 @@ const VSSMonitor = () => {
                   </div>
 
                   {trafficRange === 'custom' && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        flexWrap: 'wrap',
-                        gap: 10,
-                        alignItems: 'center',
-                        marginBottom: 12,
-                        fontSize: 13,
-                      }}
-                    >
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', marginBottom: 12, fontSize: 13 }}>
                       <label style={{ color: '#64748b' }}>
                         From{' '}
                         <input
@@ -2249,29 +2317,29 @@ const VSSMonitor = () => {
                     </div>
                   )}
 
-                  <div
-                    style={{
-                      border: '1px solid #e2e8f0',
-                      borderRadius: 12,
-                      padding: 16,
-                      background: '#fff',
-                    }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>
-                      Trafik per menit (realtime)
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, padding: 16, background: '#fff' }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4, color: '#0f172a' }}>
+                      Messages per minute
                     </div>
                     <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>
-                      Hover titik/menit untuk detail · update tiap 5 detik · data tersedia:{' '}
-                      {(trafficDetail.series || []).length} menit
-                      {(trafficDetail.series || []).length < 60
-                        ? ' (backend ~60 menit terakhir)'
-                        : ''}
+                      Hover untuk detail · update tiap 5 detik · menampilkan{' '}
+                      <strong>{filteredTrafficSeries.length}</strong> menit
+                      {(trafficDetail.series || []).length > 0 && filteredTrafficSeries.length < (
+                        trafficRange === '15m' ? 15 :
+                        trafficRange === '1h' ? 60 :
+                        trafficRange === '3h' ? 180 :
+                        trafficRange === '6h' ? 360 :
+                        trafficRange === '12h' ? 720 :
+                        trafficRange === '24h' ? 1440 : 60
+                      ) ? (
+                        <span style={{ color: '#b45309' }}>
+                          {' '}(backend baru punya {(trafficDetail.series || []).length} menit — tunggu stream mengisi / pastikan retensi 24h di server)
+                        </span>
+                      ) : null}
                     </div>
                     <TrafficPerMinuteChart
                       series={filteredTrafficSeries}
-                      current={
-                        trafficRange === 'custom' ? undefined : trafficDetail.current_minute
-                      }
+                      current={trafficRange === 'custom' ? undefined : trafficDetail.current_minute}
                       actions={
                         trafficDetail.tracked_actions || [
                           '80003',
@@ -2282,6 +2350,55 @@ const VSSMonitor = () => {
                         ]
                       }
                     />
+                  </div>
+
+                  {/* cumulative table seperti teman */}
+                  <div style={{ border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', marginTop: 16, background: '#fff' }}>
+                    <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', fontWeight: 600, fontSize: 13 }}>
+                      Cumulative total since server start
+                    </div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <thead>
+                        <tr style={{ background: '#f8fafc' }}>
+                          {['Action', 'Count', 'Share'].map((h) => (
+                            <th key={h} style={{ ...thStyle, textAlign: h === 'Action' ? 'left' : 'right' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(trafficDetail.totals || {})
+                          .sort((a, b) => b[1] - a[1])
+                          .map(([action, count]) => {
+                            const total = trafficDetail.total_messages || 1;
+                            const share = Math.round((count / total) * 1000) / 10;
+                            return (
+                              <tr key={action} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                <td style={tdStyle}>
+                                  <span
+                                    style={{
+                                      display: 'inline-block',
+                                      padding: '2px 10px',
+                                      borderRadius: 20,
+                                      fontSize: 12,
+                                      fontWeight: 600,
+                                      background: `${TRAFFIC_COLORS[action] || '#64748b'}22`,
+                                      color: TRAFFIC_COLORS[action] || '#64748b',
+                                    }}
+                                  >
+                                    {action}
+                                  </span>
+                                </td>
+                                <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 600 }}>
+                                  {count.toLocaleString()}
+                                </td>
+                                <td style={{ ...tdStyle, textAlign: 'right', color: '#64748b' }}>
+                                  {share}%
+                                </td>
+                              </tr>
+                            );
+                          })}
+                      </tbody>
+                    </table>
                   </div>
                 </>
               )}
